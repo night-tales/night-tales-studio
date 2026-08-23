@@ -1,17 +1,23 @@
 package com.hakayat.backend.jobs
 
-import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 
-@Serializable
-data class QueuedGenerationJob(val id: String, val projectId: String, val type: String, val attempt: Int = 0)
-
-interface JobQueue {
-    suspend fun enqueue(job: QueuedGenerationJob)
-    suspend fun dequeue(): QueuedGenerationJob?
+interface RedisCommands {
+    suspend fun lpush(key: String, value: String)
+    suspend fun brpop(key: String, timeoutSeconds: Long): String?
 }
 
-/** Contract only: production Redis implementation is injected by infrastructure. */
-class RedisJobQueue : JobQueue {
-    override suspend fun enqueue(job: QueuedGenerationJob) = Unit
-    override suspend fun dequeue(): QueuedGenerationJob? = null
+class RedisJobQueue(
+    private val redis: RedisCommands,
+    private val json: Json = Json { ignoreUnknownKeys = true }
+) : JobQueue {
+    private val key = "night-tales:generation:jobs"
+
+    override suspend fun enqueue(job: QueuedGenerationJob) {
+        redis.lpush(key, json.encodeToString(job))
+    }
+
+    override suspend fun dequeue(): QueuedGenerationJob? =
+        redis.brpop(key, 30)?.let { json.decodeFromString<QueuedGenerationJob>(it) }
 }

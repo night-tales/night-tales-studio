@@ -7,16 +7,16 @@ import java.io.File
 class FfmpegRenderEngine(
     private val ffmpegBinary: String = "ffmpeg",
     private val workDirectory: File = File(System.getProperty("java.io.tmpdir"), "night-tales-render"),
-    private val commandBuilder: FfmpegTimelineCommandBuilder = FfmpegTimelineCommandBuilder()
+    private val commandBuilder: FfmpegTimelineCommandBuilder = FfmpegTimelineCommandBuilder(),
+    private val materializer: AssetMaterializer = LocalAssetMaterializer()
 ) : RenderEngine {
     override suspend fun render(timeline: Timeline, outputKey: String): RenderResult = withContext(Dispatchers.IO) {
         require(timeline.clips.isNotEmpty()) { "Cannot render an empty timeline" }
         workDirectory.mkdirs()
         val output = File(workDirectory, outputKey)
         val inputs = timeline.orderedClips().map { clip ->
-            File(workDirectory, "asset-${clip.assetId}.mp4").also { file ->
-                require(file.isFile) { "Media asset is not available locally: ${clip.assetId}" }
-            }.absolutePath
+            val destination = File(workDirectory, "asset-${clip.assetId}.mp4")
+            materializer.materialize(clip.assetId.toString(), destination).absolutePath
         }
         val built = commandBuilder.build(inputs, output.absolutePath, timeline.durationMs())
         val command = built.toMutableList().also { it[0] = ffmpegBinary }

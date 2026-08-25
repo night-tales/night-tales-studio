@@ -4,24 +4,24 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.currentCoroutineContext
-import kotlin.time.Duration.Companion.seconds
+import kotlin.time.Duration.Companion.milliseconds
 
+/**
+ * Long-running worker loop. Job lifecycle, retries and persistence are owned by
+ * GenerationJobWorker; this class only controls polling and cancellation.
+ */
 class GenerationWorkerLoop(
-    private val queue: JobQueue,
-    private val handler: suspend (QueuedGenerationJob) -> Unit,
-    private val retryLimit: Int = 3
+    private val worker: GenerationJobWorker,
+    private val pollDelayMs: Long = 1_000L
 ) {
     suspend fun run() {
         while (currentCoroutineContext().isActive) {
-            val job = queue.dequeue() ?: run { delay(1.seconds); return@run }
             try {
-                handler(job)
+                if (!worker.runOnce()) {
+                    delay(pollDelayMs.milliseconds)
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
-            } catch (_: Throwable) {
-                if (job.attempt < retryLimit) {
-                    queue.enqueue(job.copy(attempt = job.attempt + 1))
-                }
             }
         }
     }

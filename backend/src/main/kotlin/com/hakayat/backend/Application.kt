@@ -10,7 +10,7 @@ import com.hakayat.backend.jobs.GenerationWorkerLoop
 import com.hakayat.backend.jobs.JobQueue
 import com.hakayat.backend.jobs.QueuedGenerationJob
 import com.hakayat.backend.render.IdempotentRenderJobDispatcher
-import com.hakayat.backend.render.InMemoryRenderIdempotencyStore
+import com.hakayat.backend.render.InMemoryRenderJobIdempotencyStore
 import com.hakayat.backend.render.InMemoryRenderJobQueue
 import com.hakayat.backend.render.InMemoryRenderJobStore
 import com.hakayat.backend.render.RenderApiRoutes.renderApiRoutes
@@ -41,11 +41,11 @@ fun Application.module() {
     val renderJobs = InMemoryRenderJobStore()
     val renderQueue = InMemoryRenderJobQueue()
     val renderDispatcher = RenderJobDispatcher(renderJobs, renderQueue)
-    val renderIdempotency = InMemoryRenderIdempotencyStore()
+    val renderIdempotency = InMemoryRenderJobIdempotencyStore()
     val renderApi = RenderJobApiService(
         dispatcher = renderDispatcher,
         query = RenderJobQueryService(renderJobs),
-        idempotentDispatcher = IdempotentRenderJobDispatcher(renderJobs, renderQueue, renderIdempotency)
+        idempotentDispatcher = IdempotentRenderJobDispatcher(renderDispatcher, renderIdempotency, renderJobs)
     )
     val health = HealthService(
         listOf(

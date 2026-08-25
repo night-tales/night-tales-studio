@@ -4,7 +4,6 @@ import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockEngineConfig
 import io.ktor.client.engine.mock.respond
-import io.ktor.client.engine.mock.toByteArray
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -38,12 +37,7 @@ class LlamaGenImageGenerationPortTest {
             }
         }))
 
-        val port = LlamaGenImageGenerationPort(
-            apiKey = "test-key",
-            client = client,
-            pollDelayMs = 0,
-            maxPolls = 2
-        )
+        val port = LlamaGenImageGenerationPort("test-key", client, pollDelayMs = 0, maxPolls = 2)
 
         assertEquals("https://example.test/panel.webp", port.generate("scene-1", "a night city"))
         assertEquals(2, calls)

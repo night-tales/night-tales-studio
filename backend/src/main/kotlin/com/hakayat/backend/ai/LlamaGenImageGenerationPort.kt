@@ -11,21 +11,23 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.contentType
 import kotlinx.coroutines.delay
-import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 class LlamaGenImageGenerationPort(
     private val apiKey: String,
     private val client: HttpClient,
     private val baseUrl: String = "https://api.llamagen.ai/v1",
-    private val model: String = "cyani-model",
     private val size: String = "1024x1024",
-    private val pollDelayMs: Long = 2_000,
-    private val maxPolls: Int = 60
+    private val fixPanelNum: Int = 1,
+    private val pollDelayMs: Long = 3_000,
+    private val maxPolls: Int = 100
 ) : ImageGenerationPort {
 
     init {
         require(apiKey.isNotBlank()) { "LLAMAGEN_API_KEY must not be blank" }
+        require(fixPanelNum in 1..20) { "fixPanelNum must be between 1 and 20" }
+        require(pollDelayMs > 0) { "pollDelayMs must be positive" }
+        require(maxPolls > 0) { "maxPolls must be positive" }
     }
 
     override suspend fun generate(sceneId: String, prompt: String): String {
@@ -34,18 +36,20 @@ class LlamaGenImageGenerationPort(
         val created: LlamaGenGeneration = client.post("$baseUrl/comics/generations") {
             header(HttpHeaders.Authorization, "Bearer $apiKey")
             contentType(ContentType.Application.Json)
-            setBody(CreateGenerationRequest(model = model, prompt = prompt, size = size))
+            setBody(CreateGenerationRequest(prompt = prompt, size = size, fixPanelNum = fixPanelNum))
         }.body()
 
         var latest = created
         repeat(maxPolls) {
-            if (latest.status.uppercase() in TERMINAL_FAILURES) {
-                error("LlamaGen generation ${latest.id} failed with status ${latest.status}")
+            when (latest.status.uppercase()) {
+                "FAILED", "CANCELLED" -> error(
+                    "LlamaGen generation ${latest.id} failed with status ${latest.status}"
+                )
+                "PROCESSED" -> {
+                    latest.firstAssetUrl()?.let { return it }
+                    error("LlamaGen generation ${latest.id} is PROCESSED but contains no assetUrl")
+                }
             }
-            latest.comics.firstOrNull()?.panels
-                ?.firstOrNull { it.assetUrl.isNotBlank() }
-                ?.assetUrl
-                ?.let { return it }
 
             delay(pollDelayMs)
             latest = client.get("$baseUrl/comics/generations/${created.id}") {
@@ -57,15 +61,19 @@ class LlamaGenImageGenerationPort(
     }
 
     private companion object {
-        val TERMINAL_FAILURES = setOf("FAILED", "ERROR", "CANCELLED")
+        fun LlamaGenGeneration.firstAssetUrl(): String? =
+            comics.asSequence()
+                .flatMap { it.panels.asSequence() }
+                .map { it.assetUrl }
+                .firstOrNull(String::isNotBlank)
     }
 }
 
 @Serializable
 private data class CreateGenerationRequest(
-    val model: String,
     val prompt: String,
-    val size: String
+    val size: String,
+    val fixPanelNum: Int
 )
 
 @Serializable
@@ -84,6 +92,6 @@ private data class LlamaGenPage(
 @Serializable
 private data class LlamaGenPanel(
     val panel: Int = 0,
-    @SerialName("assetUrl") val assetUrl: String = "",
+    val assetUrl: String = "",
     val caption: String = ""
 )

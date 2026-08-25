@@ -14,6 +14,8 @@ dependencies {
     implementation("org.jetbrains.exposed:exposed-jdbc:0.58.0")
     implementation("org.postgresql:postgresql:42.7.7")
     implementation("com.zaxxer:HikariCP:6.2.1")
+    implementation("org.flywaydb:flyway-core:11.8.2")
+    implementation("org.flywaydb:flyway-database-postgresql:11.8.2")
     implementation("io.lettuce:lettuce-core:6.5.1.RELEASE")
     implementation("software.amazon.awssdk:s3:2.31.78")
     testImplementation("io.ktor:ktor-server-test-host-jvm:3.0.3")

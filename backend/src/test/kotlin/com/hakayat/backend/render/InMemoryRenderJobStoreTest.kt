@@ -1,12 +1,13 @@
 package com.hakayat.backend.render
 
+import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import java.util.UUID
 
 class InMemoryRenderJobStoreTest {
     @Test
-    fun `stores and retrieves jobs by id and project`() = kotlinx.coroutines.test.runTest {
+    fun `stores and retrieves jobs by id and project`() = runBlocking {
         val store = InMemoryRenderJobStore()
         val project = UUID.randomUUID()
         val first = RenderJob(UUID.randomUUID(), project)

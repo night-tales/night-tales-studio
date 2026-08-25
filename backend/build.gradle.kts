@@ -24,6 +24,7 @@ dependencies {
     implementation("org.flywaydb:flyway-database-postgresql:11.8.2")
     implementation("io.lettuce:lettuce-core:6.5.1.RELEASE")
     implementation("software.amazon.awssdk:s3:2.31.78")
+    implementation("ai.llamagen:llamagen-java:0.1.0")
     testImplementation("io.ktor:ktor-server-test-host-jvm:3.0.3")
     testImplementation("io.ktor:ktor-client-mock-jvm:3.0.3")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")

@@ -3,7 +3,7 @@ package com.hakayat.backend.render
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
-class InMemoryRenderJobStore : RenderJobStore {
+class InMemoryRenderJobStore : RenderJobRepository {
     private val jobs = ConcurrentHashMap<UUID, RenderJob>()
 
     override suspend fun save(job: RenderJob) {
@@ -14,4 +14,8 @@ class InMemoryRenderJobStore : RenderJobStore {
 
     override suspend fun listByProject(projectId: UUID): List<RenderJob> =
         jobs.values.filter { it.projectId == projectId }.sortedByDescending { it.id.toString() }
+
+    override suspend fun findById(id: UUID): RenderJob? = jobs[id]
+
+    override suspend fun findByProject(projectId: UUID): List<RenderJob> = listByProject(projectId)
 }

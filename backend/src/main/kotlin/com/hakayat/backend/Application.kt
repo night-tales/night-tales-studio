@@ -1,11 +1,17 @@
 package com.hakayat.backend
 
+import com.hakayat.backend.data.GenerationJobRepository
 import com.hakayat.backend.data.InMemoryGenerationJobRepository
 import com.hakayat.backend.data.InMemoryProjectRepository
+import com.hakayat.backend.data.ProjectRepository
+import com.hakayat.backend.data.ProjectRecord
+import com.hakayat.backend.data.toRecord
 import com.hakayat.backend.infra.HealthService
+import com.hakayat.backend.infra.RedisConfig
 import com.hakayat.backend.infra.RuntimeConfig
-import com.hakayat.backend.infra.StaticHealthCheck
 import com.hakayat.backend.infra.ServiceWiring
+import com.hakayat.backend.infra.StaticHealthCheck
+import com.hakayat.backend.jobs.GenerationJobWorker
 import com.hakayat.backend.jobs.GenerationWorkerLoop
 import com.hakayat.backend.jobs.JobQueue
 import com.hakayat.backend.jobs.QueuedGenerationJob
@@ -27,9 +33,10 @@ fun Application.module() {
     val config = RuntimeConfig.fromEnvironment()
     install(ContentNegotiation) { json() }
 
-    val projects = InMemoryProjectRepository()
-    val jobs = InMemoryGenerationJobRepository()
-    val queue: JobQueue = ServiceWiring.queue(null)
+    val projects: ProjectRepository = InMemoryProjectRepository()
+    val jobs: GenerationJobRepository = InMemoryGenerationJobRepository()
+    val redisCommands = RedisConfig.commands(config)
+    val queue: JobQueue = ServiceWiring.queue(redisCommands)
     val health = HealthService(
         listOf(
             StaticHealthCheck("api"),
@@ -38,12 +45,15 @@ fun Application.module() {
         )
     )
 
-    launch {
-        GenerationWorkerLoop(queue) { job ->
-            jobs.updateStatus(job.id, "running")
-            jobs.updateStatus(job.id, "completed")
-        }.run()
+    environment.monitor.subscribe(ApplicationStopped) {
+        redisCommands?.close()
     }
+
+    val worker = GenerationJobWorker(queue, jobs) { job ->
+        jobs.updateStatus(UUID.fromString(job.id), "completed", 100, attempt = job.attempt)
+    }
+
+    launch { GenerationWorkerLoop(worker).run() }
 
     routing {
         get("/health") { call.respond(health.report()) }
@@ -53,22 +63,41 @@ fun Application.module() {
         post("/api/v1/projects") {
             val input = call.receive<StoryProject>()
             val project = input.copy(id = UUID.randomUUID().toString())
-            projects.create(project)
+            projects.save(project.toRecord())
             call.respond(HttpStatusCode.Created, project)
         }
         post("/api/v1/projects/{id}/jobs") {
-            val id = call.parameters["id"] ?: return@post call.respond(HttpStatusCode.BadRequest)
-            if (projects.find(id) == null) return@post call.respond(HttpStatusCode.NotFound)
-            val job = GenerationJob(UUID.randomUUID().toString(), id, "story", "queued")
-            jobs.create(job)
-            queue.enqueue(QueuedGenerationJob(job.id, id, job.type))
-            call.respond(HttpStatusCode.Accepted, job)
+            val projectId = call.parameters["id"] ?: return@post call.respond(HttpStatusCode.BadRequest)
+            val projectUuid = projectId.toUuidOrNull() ?: return@post call.respond(HttpStatusCode.BadRequest)
+            if (projects.findById(projectUuid) == null) return@post call.respond(HttpStatusCode.NotFound)
+
+            val job = QueuedGenerationJob(
+                id = UUID.randomUUID().toString(),
+                projectId = projectId,
+                type = "story"
+            )
+            jobs.save(
+                com.hakayat.backend.data.GenerationJobRecord(
+                    id = UUID.fromString(job.id),
+                    projectId = projectUuid,
+                    type = job.type,
+                    status = "queued",
+                    attempt = job.attempt
+                )
+            )
+            queue.enqueue(job)
+            call.respond(HttpStatusCode.Accepted, GenerationJob(job.id, job.projectId, job.type, "queued"))
         }
         get("/api/v1/jobs/{id}") {
-            val id = call.parameters["id"] ?: return@get call.respond(HttpStatusCode.BadRequest)
-            jobs.find(id)?.let { call.respond(it) } ?: call.respond(HttpStatusCode.NotFound)
+            val id = call.parameters["id"]?.toUuidOrNull()
+                ?: return@get call.respond(HttpStatusCode.BadRequest)
+            jobs.findById(id)?.let {
+                call.respond(GenerationJob(it.id.toString(), it.projectId.toString(), it.type, it.status))
+            } ?: call.respond(HttpStatusCode.NotFound)
         }
     }
 }
+
+private fun String.toUuidOrNull(): UUID? = runCatching { UUID.fromString(this) }.getOrNull()
 
 fun main() = embeddedServer(Netty, port = RuntimeConfig.fromEnvironment().port, module = Application::module).start(wait = true)

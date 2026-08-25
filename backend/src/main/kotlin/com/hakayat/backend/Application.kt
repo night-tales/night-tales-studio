@@ -1,11 +1,18 @@
 package com.hakayat.backend
 
+import com.hakayat.backend.data.GenerationJobRepository
 import com.hakayat.backend.data.InMemoryGenerationJobRepository
 import com.hakayat.backend.data.InMemoryProjectRepository
-import com.hakayat.backend.infra.HealthService
+import com.hakayat.backend.data.JdbcGenerationJobRepository
+import com.hakayat.backend.data.JdbcProjectRepository
+import com.hakayat.backend.data.ProjectRepository
+import com.hakayat.backend.data.toDomain
+import com.hakayat.backend.data.toRecord
+import com.hakayat.backend.infra.DatabaseConfig
+import com.hakayat.backend.infra.RedisConfig
 import com.hakayat.backend.infra.RuntimeConfig
-import com.hakayat.backend.infra.StaticHealthCheck
 import com.hakayat.backend.infra.ServiceWiring
+import com.hakayat.backend.jobs.GenerationJobWorker
 import com.hakayat.backend.jobs.GenerationWorkerLoop
 import com.hakayat.backend.jobs.JobQueue
 import com.hakayat.backend.jobs.QueuedGenerationJob
@@ -27,48 +34,79 @@ fun Application.module() {
     val config = RuntimeConfig.fromEnvironment()
     install(ContentNegotiation) { json() }
 
-    val projects = InMemoryProjectRepository()
-    val jobs = InMemoryGenerationJobRepository()
-    val queue: JobQueue = ServiceWiring.queue(null)
-    val health = HealthService(
-        listOf(
-            StaticHealthCheck("api"),
-            StaticHealthCheck("postgres-config"),
-            StaticHealthCheck("redis-config")
-        )
-    )
+    val dataSource = DatabaseConfig.dataSource(config)
+    if (dataSource != null) DatabaseConfig.migrate(dataSource)
 
-    launch {
-        GenerationWorkerLoop(queue) { job ->
-            jobs.updateStatus(job.id, "running")
-            jobs.updateStatus(job.id, "completed")
-        }.run()
+    val postgresConfigured = dataSource != null
+    val postgresReady = dataSource?.let(DatabaseConfig::ping) ?: false
+    val projects: ProjectRepository = dataSource?.let(::JdbcProjectRepository) ?: InMemoryProjectRepository()
+    val jobs: GenerationJobRepository = dataSource?.let(::JdbcGenerationJobRepository) ?: InMemoryGenerationJobRepository()
+    val redisCommands = RedisConfig.commands(config)
+    val queue: JobQueue = ServiceWiring.queue(redisCommands)
+
+    environment.monitor.subscribe(ApplicationStopped) {
+        redisCommands?.close()
+        dataSource?.close()
     }
 
+    val worker = GenerationJobWorker(queue, jobs) { job ->
+        jobs.updateStatus(UUID.fromString(job.id), "completed", 100, attempt = job.attempt)
+    }
+
+    launch { GenerationWorkerLoop(worker).run() }
+
     routing {
-        get("/health") { call.respond(health.report()) }
+        get("/health") {
+            val redisReady = redisCommands?.let { kotlinx.coroutines.runBlocking { it.ping() } } ?: false
+            call.respond(
+                mapOf(
+                    "status" to if ((!postgresConfigured || postgresReady) && (redisCommands == null || redisReady)) "ok" else "degraded",
+                    "postgres" to postgresReady,
+                    "redis" to redisReady
+                )
+            )
+        }
+        get("/ready") {
+            val redisReady = redisCommands?.let { kotlinx.coroutines.runBlocking { it.ping() } } ?: false
+            val ready = (!postgresConfigured || postgresReady) && (redisCommands == null || redisReady)
+            if (ready) {
+                call.respond(mapOf("status" to "ready", "postgres" to postgresReady, "redis" to redisReady))
+            } else {
+                call.respond(HttpStatusCode.ServiceUnavailable, mapOf("status" to "not_ready", "postgres" to postgresReady, "redis" to redisReady))
+            }
+        }
         get("/api/v1/config") {
             call.respond(mapOf("port" to config.port, "aiProvider" to config.aiProvider))
         }
         post("/api/v1/projects") {
             val input = call.receive<StoryProject>()
             val project = input.copy(id = UUID.randomUUID().toString())
-            projects.create(project)
-            call.respond(HttpStatusCode.Created, project)
+            val saved = projects.save(project.toRecord())
+            call.respond(HttpStatusCode.Created, saved.toDomain())
         }
         post("/api/v1/projects/{id}/jobs") {
-            val id = call.parameters["id"] ?: return@post call.respond(HttpStatusCode.BadRequest)
-            if (projects.find(id) == null) return@post call.respond(HttpStatusCode.NotFound)
-            val job = GenerationJob(UUID.randomUUID().toString(), id, "story", "queued")
-            jobs.create(job)
-            queue.enqueue(QueuedGenerationJob(job.id, id, job.type))
-            call.respond(HttpStatusCode.Accepted, job)
+            val projectId = call.parameters["id"] ?: return@post call.respond(HttpStatusCode.BadRequest)
+            val projectUuid = projectId.toUuidOrNull() ?: return@post call.respond(HttpStatusCode.BadRequest)
+            val project = projects.findById(projectUuid) ?: return@post call.respond(HttpStatusCode.NotFound)
+            val job = QueuedGenerationJob(UUID.randomUUID().toString(), project.id.toString(), "story")
+            worker.ensureJobRecord(job)
+            try {
+                queue.enqueue(job)
+            } catch (error: Throwable) {
+                jobs.updateStatus(UUID.fromString(job.id), "failed", 0, error.message, job.attempt)
+                throw error
+            }
+            call.respond(HttpStatusCode.Accepted, GenerationJob(job.id, job.projectId, job.type, "queued"))
         }
         get("/api/v1/jobs/{id}") {
-            val id = call.parameters["id"] ?: return@get call.respond(HttpStatusCode.BadRequest)
-            jobs.find(id)?.let { call.respond(it) } ?: call.respond(HttpStatusCode.NotFound)
+            val id = call.parameters["id"]?.toUuidOrNull() ?: return@get call.respond(HttpStatusCode.BadRequest)
+            jobs.findById(id)?.let {
+                call.respond(GenerationJob(it.id.toString(), it.projectId.toString(), it.type, it.status))
+            } ?: call.respond(HttpStatusCode.NotFound)
         }
     }
 }
+
+private fun String.toUuidOrNull(): UUID? = runCatching { UUID.fromString(this) }.getOrNull()
 
 fun main() = embeddedServer(Netty, port = RuntimeConfig.fromEnvironment().port, module = Application::module).start(wait = true)

@@ -3,9 +3,12 @@ package com.hakayat.backend.jobs
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
-interface RedisCommands {
+interface RedisCommands : AutoCloseable {
+    suspend fun ping(): Boolean
     suspend fun lpush(key: String, value: String)
     suspend fun brpop(key: String, timeoutSeconds: Long): String?
+
+    override fun close() = Unit
 }
 
 class RedisJobQueue(

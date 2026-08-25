@@ -38,6 +38,8 @@ fun Application.module() {
     val dataSource = DatabaseConfig.dataSource(config)
     if (dataSource != null) DatabaseConfig.migrate(dataSource)
 
+    val postgresConfigured = dataSource != null
+    val postgresReady = dataSource?.let(DatabaseConfig::ping) ?: false
     val projects: ProjectRepository = dataSource?.let(::JdbcProjectRepository) ?: InMemoryProjectRepository()
     val jobs: GenerationJobRepository = dataSource?.let(::JdbcGenerationJobRepository) ?: InMemoryGenerationJobRepository()
     val redisCommands = RedisConfig.commands(config)
@@ -56,7 +58,21 @@ fun Application.module() {
 
     routing {
         get("/health") {
-            call.respond(mapOf("status" to "ok", "postgres" to (dataSource != null), "redis" to (redisCommands != null)))
+            call.respond(
+                mapOf(
+                    "status" to if (!postgresConfigured || postgresReady) "ok" else "degraded",
+                    "postgres" to postgresReady,
+                    "redis" to (redisCommands != null)
+                )
+            )
+        }
+        get("/ready") {
+            val ready = !postgresConfigured || postgresReady
+            if (ready) {
+                call.respond(mapOf("status" to "ready", "postgres" to postgresReady, "redis" to (redisCommands != null)))
+            } else {
+                call.respond(HttpStatusCode.ServiceUnavailable, mapOf("status" to "not_ready", "postgres" to false, "redis" to (redisCommands != null)))
+            }
         }
         get("/api/v1/config") {
             call.respond(mapOf("port" to config.port, "aiProvider" to config.aiProvider))

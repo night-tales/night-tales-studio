@@ -9,6 +9,14 @@ import com.hakayat.backend.infra.ServiceWiring
 import com.hakayat.backend.jobs.GenerationWorkerLoop
 import com.hakayat.backend.jobs.JobQueue
 import com.hakayat.backend.jobs.QueuedGenerationJob
+import com.hakayat.backend.render.IdempotentRenderJobDispatcher
+import com.hakayat.backend.render.InMemoryRenderIdempotencyStore
+import com.hakayat.backend.render.InMemoryRenderJobQueue
+import com.hakayat.backend.render.InMemoryRenderJobStore
+import com.hakayat.backend.render.RenderApiRoutes.renderApiRoutes
+import com.hakayat.backend.render.RenderJobApiService
+import com.hakayat.backend.render.RenderJobDispatcher
+import com.hakayat.backend.render.RenderJobQueryService
 import com.hakayat.core.model.GenerationJob
 import com.hakayat.core.model.StoryProject
 import io.ktor.http.*
@@ -30,6 +38,15 @@ fun Application.module() {
     val projects = InMemoryProjectRepository()
     val jobs = InMemoryGenerationJobRepository()
     val queue: JobQueue = ServiceWiring.queue(null)
+    val renderJobs = InMemoryRenderJobStore()
+    val renderQueue = InMemoryRenderJobQueue()
+    val renderDispatcher = RenderJobDispatcher(renderJobs, renderQueue)
+    val renderIdempotency = InMemoryRenderIdempotencyStore()
+    val renderApi = RenderJobApiService(
+        dispatcher = renderDispatcher,
+        query = RenderJobQueryService(renderJobs),
+        idempotentDispatcher = IdempotentRenderJobDispatcher(renderJobs, renderQueue, renderIdempotency)
+    )
     val health = HealthService(
         listOf(
             StaticHealthCheck("api"),
@@ -68,6 +85,7 @@ fun Application.module() {
             val id = call.parameters["id"] ?: return@get call.respond(HttpStatusCode.BadRequest)
             jobs.find(id)?.let { call.respond(it) } ?: call.respond(HttpStatusCode.NotFound)
         }
+        renderApiRoutes(renderApi)
     }
 }
 

@@ -27,10 +27,18 @@ object DatabaseConfig {
             .migrate()
     }
 
+    fun ping(dataSource: DataSource): Boolean = runCatching {
+        dataSource.connection.use { connection ->
+            connection.prepareStatement("select 1").use { statement ->
+                statement.executeQuery().use { it.next() }
+            }
+        }
+    }.getOrDefault(false)
+
     private fun normalizeJdbcUrl(url: String): String = when {
         url.startsWith("jdbc:postgresql://") -> url
         url.startsWith("postgresql://") -> "jdbc:$url"
-        url.startsWith("postgres://") -> "jdbc:postgresql://${url.removePrefix("postgres://")}" 
+        url.startsWith("postgres://") -> "jdbc:postgresql://${url.removePrefix("postgres://")}"
         else -> error("DATABASE_URL must be a PostgreSQL connection URL")
     }
 }

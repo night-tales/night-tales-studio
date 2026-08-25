@@ -1,6 +1,5 @@
 package com.hakayat.backend
 
-import com.hakayat.backend.data.GenerationJobRecord
 import com.hakayat.backend.data.GenerationJobRepository
 import com.hakayat.backend.data.InMemoryGenerationJobRepository
 import com.hakayat.backend.data.InMemoryProjectRepository
@@ -58,20 +57,22 @@ fun Application.module() {
 
     routing {
         get("/health") {
+            val redisReady = redisCommands?.let { kotlinx.coroutines.runBlocking { it.ping() } } ?: false
             call.respond(
                 mapOf(
-                    "status" to if (!postgresConfigured || postgresReady) "ok" else "degraded",
+                    "status" to if ((!postgresConfigured || postgresReady) && (redisCommands == null || redisReady)) "ok" else "degraded",
                     "postgres" to postgresReady,
-                    "redis" to (redisCommands != null)
+                    "redis" to redisReady
                 )
             )
         }
         get("/ready") {
-            val ready = !postgresConfigured || postgresReady
+            val redisReady = redisCommands?.let { kotlinx.coroutines.runBlocking { it.ping() } } ?: false
+            val ready = (!postgresConfigured || postgresReady) && (redisCommands == null || redisReady)
             if (ready) {
-                call.respond(mapOf("status" to "ready", "postgres" to postgresReady, "redis" to (redisCommands != null)))
+                call.respond(mapOf("status" to "ready", "postgres" to postgresReady, "redis" to redisReady))
             } else {
-                call.respond(HttpStatusCode.ServiceUnavailable, mapOf("status" to "not_ready", "postgres" to false, "redis" to (redisCommands != null)))
+                call.respond(HttpStatusCode.ServiceUnavailable, mapOf("status" to "not_ready", "postgres" to postgresReady, "redis" to redisReady))
             }
         }
         get("/api/v1/config") {
@@ -88,8 +89,13 @@ fun Application.module() {
             val projectUuid = projectId.toUuidOrNull() ?: return@post call.respond(HttpStatusCode.BadRequest)
             val project = projects.findById(projectUuid) ?: return@post call.respond(HttpStatusCode.NotFound)
             val job = QueuedGenerationJob(UUID.randomUUID().toString(), project.id.toString(), "story")
-            jobs.save(GenerationJobRecord(UUID.fromString(job.id), projectUuid, job.type, "queued", attempt = job.attempt))
-            queue.enqueue(job)
+            worker.ensureJobRecord(job)
+            try {
+                queue.enqueue(job)
+            } catch (error: Throwable) {
+                jobs.updateStatus(UUID.fromString(job.id), "failed", 0, error.message, job.attempt)
+                throw error
+            }
             call.respond(HttpStatusCode.Accepted, GenerationJob(job.id, job.projectId, job.type, "queued"))
         }
         get("/api/v1/jobs/{id}") {

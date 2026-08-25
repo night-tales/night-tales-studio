@@ -5,7 +5,8 @@ data class RuntimeConfig(
     val databaseUrl: String?,
     val redisUrl: String?,
     val objectStorageEndpoint: String?,
-    val aiProvider: String?
+    val aiProvider: String?,
+    val llamagenApiKey: String?
 ) {
     companion object {
         fun fromEnvironment(env: Map<String, String> = System.getenv()): RuntimeConfig = RuntimeConfig(
@@ -13,7 +14,8 @@ data class RuntimeConfig(
             databaseUrl = env["DATABASE_URL"],
             redisUrl = env["REDIS_URL"],
             objectStorageEndpoint = env["OBJECT_STORAGE_ENDPOINT"],
-            aiProvider = env["AI_PROVIDER"]
+            aiProvider = env["AI_PROVIDER"],
+            llamagenApiKey = env["LLAMAGEN_API_KEY"]?.trim()?.takeIf(String::isNotEmpty)
         )
     }
 }

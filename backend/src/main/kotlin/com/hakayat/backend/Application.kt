@@ -13,10 +13,10 @@ import com.hakayat.backend.render.IdempotentRenderJobDispatcher
 import com.hakayat.backend.render.InMemoryRenderJobIdempotencyStore
 import com.hakayat.backend.render.InMemoryRenderJobQueue
 import com.hakayat.backend.render.InMemoryRenderJobStore
-import com.hakayat.backend.render.RenderApiRoutes.renderApiRoutes
 import com.hakayat.backend.render.RenderJobApiService
 import com.hakayat.backend.render.RenderJobDispatcher
 import com.hakayat.backend.render.RenderJobQueryService
+import com.hakayat.backend.render.renderApiRoutes
 import com.hakayat.core.model.GenerationJob
 import com.hakayat.core.model.StoryProject
 import io.ktor.http.*

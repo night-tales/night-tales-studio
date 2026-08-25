@@ -4,6 +4,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 interface RedisCommands : AutoCloseable {
+    suspend fun ping(): Boolean
     suspend fun lpush(key: String, value: String)
     suspend fun brpop(key: String, timeoutSeconds: Long): String?
 

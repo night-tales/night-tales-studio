@@ -14,13 +14,19 @@ class GenerationJobWorker(
         val job = queue.dequeue() ?: return false
         val id = UUID.fromString(job.id)
         try {
-            repository.updateStatus(id, "running", 10)
+            repository.updateStatus(id, "running", 10, attempt = job.attempt)
             processor(job)
-            repository.updateStatus(id, "completed", 100)
+            repository.updateStatus(id, "completed", 100, attempt = job.attempt)
         } catch (error: Throwable) {
             val nextAttempt = job.attempt + 1
             val retry = retryPolicy.shouldRetry(nextAttempt)
-            repository.updateStatus(id, if (retry) "retrying" else "failed", 0, error.message)
+            repository.updateStatus(
+                id,
+                if (retry) "retrying" else "failed",
+                0,
+                error.message,
+                nextAttempt
+            )
             if (retry) queue.enqueue(job.copy(attempt = nextAttempt))
         }
         return true
@@ -32,7 +38,8 @@ class GenerationJobWorker(
                 id = UUID.fromString(job.id),
                 projectId = UUID.fromString(job.projectId),
                 type = job.type,
-                status = "queued"
+                status = "queued",
+                attempt = job.attempt
             )
         )
     }

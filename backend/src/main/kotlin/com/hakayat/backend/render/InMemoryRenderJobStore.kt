@@ -10,5 +10,8 @@ class InMemoryRenderJobStore : RenderJobStore {
         jobs[job.id] = job
     }
 
-    fun find(id: UUID): RenderJob? = jobs[id]
+    override suspend fun find(id: UUID): RenderJob? = jobs[id]
+
+    override suspend fun listByProject(projectId: UUID): List<RenderJob> =
+        jobs.values.filter { it.projectId == projectId }.sortedByDescending { it.id.toString() }
 }

@@ -45,16 +45,18 @@ class JdbcGenerationJobRepository(private val dataSource: DataSource) : Generati
         job
     }
 
-    override suspend fun updateStatus(id: UUID, status: String, progress: Int, error: String?, attempt: Int?) = dataSource.connection.use { c ->
-        val sql = if (attempt == null) {
-            "update generation_jobs set status = ?, progress = ?, message = ?, updated_at = current_timestamp where id = ?"
-        } else {
-            "update generation_jobs set status = ?, progress = ?, message = ?, attempt = ?, updated_at = current_timestamp where id = ?"
-        }
-        c.prepareStatement(sql).use { s ->
-            s.setString(1, status); s.setInt(2, progress); s.setString(3, error)
-            if (attempt == null) s.setObject(4, id) else { s.setInt(4, attempt); s.setObject(5, id) }
-            s.executeUpdate()
+    override suspend fun updateStatus(id: UUID, status: String, progress: Int, error: String?, attempt: Int?) {
+        dataSource.connection.use { c ->
+            val sql = if (attempt == null) {
+                "update generation_jobs set status = ?, progress = ?, message = ?, updated_at = current_timestamp where id = ?"
+            } else {
+                "update generation_jobs set status = ?, progress = ?, message = ?, attempt = ?, updated_at = current_timestamp where id = ?"
+            }
+            c.prepareStatement(sql).use { s ->
+                s.setString(1, status); s.setInt(2, progress); s.setString(3, error)
+                if (attempt == null) s.setObject(4, id) else { s.setInt(4, attempt); s.setObject(5, id) }
+                s.executeUpdate()
+            }
         }
     }
 }

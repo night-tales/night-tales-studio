@@ -1,23 +1,27 @@
 # Night Tales Studio
 
-AI-powered creative studio for story generation, media production, timeline editing, rendering and export.
+Night Tales Studio is an AI creative studio application that allows you to manage story projects, generate scenes and media, and plan timelines. 
 
-## Status
+## Features
+- Create new story projects with AI prompts
+- Manage and view generated scenes
+- Track generation jobs
+- View timeline details
 
-The repository is being built as an independent full-stack project. The target pipeline is:
+## Tech Stack
+- React
+- TypeScript
+- Vite
+- Tailwind CSS
+- React Router
 
-**Idea → Blueprint → Scenes → Images + Voice → Subtitles → Quality → Timeline → Preview → MP4 → Library → Share**
+## Development
+Run the development server:
+```
+npm run dev
+```
 
-## Stack
-
-- Android: Kotlin, Jetpack Compose, WorkManager, Media3
-- Backend: Ktor, Kotlin
-- Data: PostgreSQL, Redis
-- AI: provider abstraction + orchestration agents
-- Infrastructure: Docker Compose, GitHub Actions
-
-## Security
-
-API keys and production credentials are never committed. Use `.env` locally or repository/environment secrets in deployment.
-
-See `docs/ARCHITECTURE.md` for the system design.
+Build for production:
+```
+npm run build
+```

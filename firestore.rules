@@ -12,5 +12,21 @@ service cloud.firestore {
                     && request.resource.data.content is string
                     && request.resource.data.createdAt == request.time;
     }
+
+    match /stories/{storyId} {
+      allow read: if resource.data.isPublished == true
+                  || (request.auth != null && resource.data.authorId == request.auth.uid);
+      allow create: if request.auth != null
+                    && request.resource.data.authorId == request.auth.uid
+                    && request.resource.data.title is string
+                    && request.resource.data.content is string
+                    && request.resource.data.genre is string
+                    && request.resource.data.isPublished is bool;
+      allow update: if request.auth != null
+                    && resource.data.authorId == request.auth.uid
+                    && request.resource.data.authorId == resource.data.authorId;
+      allow delete: if request.auth != null
+                    && resource.data.authorId == request.auth.uid;
+    }
   }
 }

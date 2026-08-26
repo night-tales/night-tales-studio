@@ -1,0 +1,16 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    match /messages/{messageId} {
+      allow read: if true;
+      allow create: if request.resource.data.keys().hasAll(['role', 'content', 'createdAt'])
+                    && request.resource.data.role in ['user', 'assistant', 'tool']
+                    && request.resource.data.content is string
+                    && request.resource.data.createdAt == request.time;
+    }
+  }
+}

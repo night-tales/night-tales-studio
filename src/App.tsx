@@ -1,46 +1,52 @@
-import { Routes, Route, Link, useNavigate } from 'react-router-dom';
-import { useStore } from './store';
-import { Clapperboard, Plus } from 'lucide-react';
-import ProjectList from './components/ProjectList';
-import ProjectDetail from './components/ProjectDetail';
-import NewProjectForm from './components/NewProjectForm';
+import { Routes, Route, Link, useLocation } from 'react-router-dom';
+import { Home, MessageSquare, Clock, Settings, Bot } from 'lucide-react';
+import HomeScreen from './components/HomeScreen';
+import TaskScreen from './components/TaskScreen';
 
 function App() {
-  const store = useStore();
-  const navigate = useNavigate();
+  const location = useLocation();
 
   return (
-    <div className="min-h-screen flex flex-col bg-zinc-50 font-sans">
-      <header className="bg-white border-b border-zinc-200 px-6 py-4 flex items-center justify-between sticky top-0 z-10">
-        <Link to="/" className="flex items-center gap-3">
-          <div className="bg-indigo-600 text-white p-2 rounded-lg">
-            <Clapperboard size={20} />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold tracking-tight text-zinc-900 leading-none">Night Tales Studio</h1>
-            <p className="text-xs text-zinc-500 font-medium mt-1">AI Creative Studio</p>
-          </div>
-        </Link>
-        <button 
-          onClick={() => navigate('/new')}
-          className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
-        >
-          <Plus size={16} />
-          New Project
-        </button>
-      </header>
+    <div className="min-h-screen bg-zinc-950 text-zinc-50 font-sans flex justify-center">
+      {/* Mobile App Container Simulation */}
+      <div className="w-full max-w-md bg-zinc-900 min-h-screen flex flex-col relative shadow-2xl overflow-hidden border-x border-zinc-800">
+        
+        {/* Header */}
+        <header className="bg-zinc-900 border-b border-zinc-800 px-4 py-4 flex items-center justify-between sticky top-0 z-10">
+          <Link to="/" className="flex items-center gap-2">
+            <div className="bg-blue-500 text-white p-1.5 rounded-lg">
+              <Bot size={20} />
+            </div>
+            <h1 className="text-lg font-bold tracking-tight leading-none text-white">حكايات AI Hub</h1>
+          </Link>
+        </header>
 
-      <main className="flex-1 max-w-5xl w-full mx-auto p-6 md:p-8">
-        <Routes>
-          <Route path="/" element={<ProjectList projects={store.projects} />} />
-          <Route path="/new" element={<NewProjectForm onAdd={(title, prompt) => {
-            const p = store.addProject(title, prompt);
-            navigate(`/project/${p.id}`);
-          }} />} />
-          <Route path="/project/:id" element={<ProjectDetail store={store} />} />
-        </Routes>
-      </main>
+        {/* Main Content Area */}
+        <main className="flex-1 overflow-y-auto pb-20 scroll-smooth">
+          <Routes>
+            <Route path="/" element={<HomeScreen />} />
+            <Route path="/task" element={<TaskScreen />} />
+          </Routes>
+        </main>
+
+        {/* Bottom Navigation */}
+        <nav className="absolute bottom-0 w-full bg-zinc-900 border-t border-zinc-800 px-6 py-3 flex justify-between items-center z-20 pb-safe">
+          <NavItem to="/" icon={<Home size={24} />} label="الرئيسية" active={location.pathname === '/'} />
+          <NavItem to="/task" icon={<MessageSquare size={24} />} label="المهام" active={location.pathname === '/task'} />
+          <NavItem to="/history" icon={<Clock size={24} />} label="السجل" active={location.pathname === '/history'} />
+          <NavItem to="/settings" icon={<Settings size={24} />} label="الإعدادات" active={location.pathname === '/settings'} />
+        </nav>
+      </div>
     </div>
+  );
+}
+
+function NavItem({ to, icon, label, active }: { to: string, icon: React.ReactNode, label: string, active: boolean }) {
+  return (
+    <Link to={to} className={`flex flex-col items-center gap-1 transition-colors ${active ? 'text-blue-400' : 'text-zinc-500 hover:text-zinc-300'}`}>
+      {icon}
+      <span className="text-[10px] font-medium">{label}</span>
+    </Link>
   );
 }
 

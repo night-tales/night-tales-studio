@@ -1,7 +1,7 @@
 plugins {
-    kotlin("jvm") version "1.9.22"
-    id("io.ktor.plugin") version "2.3.8"
-    kotlin("plugin.serialization") version "1.9.22"
+    id("org.jetbrains.kotlin.jvm")
+    id("org.jetbrains.kotlin.plugin.serialization")
+    id("application")
     id("com.github.johnrengelman.shadow") version "8.1.1"
 }
 
@@ -12,9 +12,6 @@ application {
     mainClass.set("com.hakayat.backend.ApplicationKt")
 }
 
-repositories {
-    mavenCentral()
-}
 
 dependencies {
     val ktorVersion = "2.3.8"
@@ -36,6 +33,7 @@ dependencies {
     implementation("io.ktor:ktor-client-core:$ktorVersion")
     implementation("io.ktor:ktor-client-cio:$ktorVersion")
     implementation("io.ktor:ktor-client-content-negotiation:$ktorVersion")
+    testImplementation("io.ktor:ktor-client-mock:$ktorVersion")
     
     // Database (Exposed, HikariCP, PostgreSQL)
     implementation("org.jetbrains.exposed:exposed-core:$exposedVersion")
@@ -51,7 +49,7 @@ dependencies {
     
     // Testing
     testImplementation("io.ktor:ktor-server-tests-jvm:$ktorVersion")
-    testImplementation("org.jetbrains.kotlin:kotlin-test-junit:1.9.22")
+    testImplementation("org.jetbrains.kotlin:kotlin-test-junit:2.2.21")
     testImplementation("org.testcontainers:junit-jupiter:1.20.1")
     testImplementation("org.testcontainers:postgresql:1.20.1")
 }

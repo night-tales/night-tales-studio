@@ -1,7 +1,7 @@
 package com.hakayat.backend.ai
 
 class AiAgentRegistry(
-    adapters: Collection<AiAgentAdapter>
+    adapters: Collection<AiProviderAdapter>
 ) {
     private val byId = adapters.associateBy { it.agentId }
 

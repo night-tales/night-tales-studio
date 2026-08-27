@@ -159,15 +159,12 @@ export default function TaskScreen() {
     const provider = agent?.provider || 'openai';
 
     try {
-      const apiKey = await getApiKeyForProvider(provider);
-
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           provider: provider,
           model: agent?.model || "gpt-4o",
-          apiKey: apiKey,
           messages: messages.concat(userMessage).map(m => ({ role: m.role, content: m.content }))
         })
       });

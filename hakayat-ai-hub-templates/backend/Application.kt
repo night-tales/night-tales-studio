@@ -1,6 +1,9 @@
 package com.hakayat.backend
 
-import com.hakayat.backend.ai.adapters.*
+import com.hakayat.backend.ai.*
+import com.hakayat.backend.ai.adapters.AnthropicProviderAdapter
+import com.hakayat.backend.ai.adapters.GeminiProviderAdapter
+import com.hakayat.backend.ai.adapters.OpenAiProviderAdapter
 import com.hakayat.backend.auth.FirebaseAuthConfig
 import com.hakayat.backend.auth.FirebaseUserPrincipal
 import com.hakayat.backend.db.DatabaseFactory
@@ -26,6 +29,8 @@ import io.ktor.server.routing.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.plugins.contentnegotiation.*
 import kotlinx.serialization.Serializable
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.cio.CIO
 
 fun main() {
     embeddedServer(Netty, port = 8080, host = "0.0.0.0", module = Application::module).start(wait = true)
@@ -61,27 +66,21 @@ fun Application.module() {
     val realtimeTickets = RealtimeTicketRepository()
     val taskRepository = TaskRepository()
 
-    val openAiAdapter = OpenAiAdapter(
-        System.getenv("OPENAI_API_KEY") ?: error("OPENAI_API_KEY must be configured")
+    val aiHttpClient = HttpClient(CIO)
+    val providerAdapters = listOf(
+        OpenAiProviderAdapter(System.getenv("OPENAI_API_KEY").orEmpty(), aiHttpClient),
+        AnthropicProviderAdapter(System.getenv("ANTHROPIC_API_KEY").orEmpty(), aiHttpClient),
+        GeminiProviderAdapter(System.getenv("GEMINI_API_KEY").orEmpty(), aiHttpClient)
     )
-    val geminiAdapter = GeminiAdapter(
-        System.getenv("GEMINI_API_KEY") ?: error("GEMINI_API_KEY must be configured")
-    )
-    val claudeAdapter = ClaudeAdapter(
-        System.getenv("ANTHROPIC_API_KEY") ?: error("ANTHROPIC_API_KEY must be configured")
-    )
-
-    val agentsMap = mapOf(
-        openAiAdapter.agentId to openAiAdapter,
-        geminiAdapter.agentId to geminiAdapter,
-        claudeAdapter.agentId to claudeAdapter
-    )
-    val orchestrator = Orchestrator(agentsMap)
+    val aiRegistry = AiAgentRegistry(providerAdapters)
+    val aiExecutor = TaskAiExecutor(aiRegistry)
+    val usageLedger = JdbcUsageLedgerRepository()
     val workerScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    TaskWorker(workerScope, taskRepository, orchestrator, webSocketManager).start()
+    TaskWorker(workerScope, taskRepository, aiExecutor, usageLedger, webSocketManager).start()
 
     environment.monitor.subscribe(ApplicationStopping) {
         workerScope.coroutineContext.cancel()
+        aiHttpClient.close()
     }
 
     routing {

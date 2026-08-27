@@ -6,6 +6,10 @@ import com.hakayat.backend.auth.FirebaseUserPrincipal
 import com.hakayat.backend.db.DatabaseFactory
 import com.hakayat.backend.db.TaskRepository
 import com.hakayat.backend.realtime.WebSocketManager
+import com.hakayat.backend.realtime.RealtimeTicketRepository
+import io.ktor.server.websocket.*
+import io.ktor.websocket.*
+import kotlin.time.Duration.Companion.seconds
 import com.hakayat.backend.tasks.TaskWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -31,6 +35,11 @@ fun Application.module() {
     install(ContentNegotiation) {
         json()
     }
+    install(WebSockets) {
+        pingPeriod = 15.seconds
+        timeout = 30.seconds
+        maxFrameSize = 64 * 1024
+    }
 
     FirebaseAuthConfig.initialize()
     DatabaseFactory.initialize()
@@ -49,6 +58,7 @@ fun Application.module() {
     }
 
     val webSocketManager = WebSocketManager()
+    val realtimeTickets = RealtimeTicketRepository()
     val taskRepository = TaskRepository()
 
     val openAiAdapter = OpenAiAdapter(
@@ -88,6 +98,12 @@ fun Application.module() {
                     "uid" to principal.uid,
                     "claims" to principal.claims
                 ))
+            }
+
+            post("/api/v1/realtime/ticket") {
+                val principal = call.principal<FirebaseUserPrincipal>()
+                    ?: return@post call.respond(io.ktor.http.HttpStatusCode.Unauthorized)
+                call.respond(mapOf("ticket" to realtimeTickets.issue(principal.uid), "expiresInSeconds" to 60))
             }
 
             post("/api/v1/tasks") {
@@ -138,6 +154,23 @@ fun Application.module() {
                         "taskId" to task.id.toString()
                     )
                 )
+            }
+
+            webSocket("/api/v1/realtime") {
+                val ticket = call.request.queryParameters["ticket"]
+                val userId = ticket?.let { realtimeTickets.consume(it) }
+                if (userId == null) {
+                    close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "Invalid realtime ticket"))
+                    return@webSocket
+                }
+                webSocketManager.addSession(userId, this)
+                try {
+                    for (frame in incoming) {
+                        if (frame is Frame.Close) break
+                    }
+                } finally {
+                    webSocketManager.removeSession(userId, this)
+                }
             }
 
             delete("/api/v1/tasks/{taskId}") {

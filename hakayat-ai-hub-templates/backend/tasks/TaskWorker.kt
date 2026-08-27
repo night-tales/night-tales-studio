@@ -91,6 +91,8 @@ class TaskWorker(
                     )
                 )
 
+                repository.markCompleted(task.id, response)
+                repository.addEvent(task.id, "completed", """{"progress":1,"inputTokens":\${usage.inputTokens},"outputTokens":\${usage.outputTokens}}""")
                 webSocketManager.sendProgressUpdate(task.userId, task.id.toString(), 1f, "اكتملت المهمة")
             } catch (error: Exception) {
                 val message = error.message ?: "Task execution failed"

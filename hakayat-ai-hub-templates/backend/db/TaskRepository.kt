@@ -72,10 +72,14 @@ class TaskRepository {
     ) {
         DatabaseFactory.transaction { connection ->
             val sql = when (status) {
-                TaskStatus.RUNNING -> "UPDATE tasks SET status = ?, progress = ?, started_at = NOW() WHERE id = ?"
-                TaskStatus.COMPLETED -> "UPDATE tasks SET status = ?, progress = ?, output = CAST(? AS jsonb), completed_at = NOW() WHERE id = ?"
-                TaskStatus.FAILED -> "UPDATE tasks SET status = ?, progress = ?, error = ?, completed_at = NOW() WHERE id = ?"
-                else -> "UPDATE tasks SET status = ?, progress = ? WHERE id = ?"
+                TaskStatus.RUNNING ->
+                    "UPDATE tasks SET status = ?, progress = ?, started_at = NOW() WHERE id = ?"
+                TaskStatus.COMPLETED ->
+                    "UPDATE tasks SET status = ?, progress = ?, output = CAST(? AS jsonb), completed_at = NOW() WHERE id = ?"
+                TaskStatus.FAILED ->
+                    "UPDATE tasks SET status = ?, progress = ?, error = ?, completed_at = NOW() WHERE id = ?"
+                else ->
+                    "UPDATE tasks SET status = ?, progress = ? WHERE id = ?"
             }
 
             connection.prepareStatement(sql).use { statement ->
@@ -105,7 +109,7 @@ class TaskRepository {
 
     private fun jsonString(value: String): String =
         """ + value
-            .replace("\", "\\")
+            .replace("\\", "\\\\")
             .replace(""", "\"")
             .replace("
 ", "\n")

@@ -1,6 +1,6 @@
 plugins {
-    embeddedKotlin("jvm")
-    embeddedKotlin("plugin.serialization")
+    id("org.jetbrains.kotlin.jvm")
+    id("org.jetbrains.kotlin.plugin.serialization")
     id("com.github.johnrengelman.shadow") version "8.1.1"
 }
 

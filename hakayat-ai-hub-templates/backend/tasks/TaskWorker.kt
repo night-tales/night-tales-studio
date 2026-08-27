@@ -47,7 +47,11 @@ class TaskWorker(
                 )
             } catch (error: Exception) {
                 val message = error.message ?: "Task execution failed"
-                repository.markFailed(task.id, message)
+                val retryCount = 0
+                val retryDelay = 1L shl retryCount.coerceAtMost(5)
+                if (!repository.retry(task.id, message, retryDelay)) {
+                    repository.markFailed(task.id, message)
+                }
                 repository.addEvent(task.id, "failed", """{"progress":0}""")
                 webSocketManager.sendProgressUpdate(
                     task.userId,

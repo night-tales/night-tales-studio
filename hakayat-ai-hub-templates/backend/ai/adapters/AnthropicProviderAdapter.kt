@@ -41,6 +41,7 @@ class AnthropicProviderAdapter(
             request.temperature?.let { put("temperature", it) }
         }
         val response = client.post(endpoint) {
+            expectSuccess = true
             contentType(ContentType.Application.Json)
             header("x-api-key", apiKey)
             header("anthropic-version", "2023-06-01")

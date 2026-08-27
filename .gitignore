@@ -1,14 +1,22 @@
-# Gradle files
+# Node / web
+node_modules/
+dist/
+coverage/
+.env
+.env.*
+!.env.example
+
+# Gradle
 .gradle/
 build/
 
-# Local configuration file (sdk path, etc)
+# Local configuration
 local.properties
 
-# Log/OS Files
+# Logs / OS
 *.log
 
-# Android Studio generated files and folders
+# Android Studio
 captures/
 .externalNativeBuild/
 .cxx/
@@ -23,12 +31,12 @@ misc.xml
 deploymentTargetDropDown.xml
 render.experimental.xml
 
-# Keystore files
+# Keystores
 *.jks
 *.keystore
 
-# Google Services (e.g. APIs or Firebase)
+# Google Services
 google-services.json
 
-# Android Profiling
+# Android profiling
 *.hprof

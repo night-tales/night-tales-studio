@@ -111,6 +111,7 @@ export default function TaskScreen() {
         role: msgRole,
         content: content,
         agentName: agentName || null,
+        userId: auth.currentUser?.uid,
         createdAt: serverTimestamp(),
       });
     } catch (error) {

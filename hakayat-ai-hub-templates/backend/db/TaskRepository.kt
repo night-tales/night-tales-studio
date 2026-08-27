@@ -2,6 +2,13 @@ package com.hakayat.backend.db
 
 import java.util.UUID
 
+data class TaskExecution(
+    val id: UUID,
+    val userId: String,
+    val agentId: String,
+    val prompt: String
+)
+
 data class TaskRecord(
     val id: UUID,
     val userId: String,
@@ -15,10 +22,26 @@ class TaskRepository {
     fun create(userId: String, agentId: String, prompt: String): TaskRecord =
         DatabaseFactory.transaction { connection ->
             val id = UUID.randomUUID()
+            connection.prepareStatement("INSERT INTO users (id) VALUES (?) ON CONFLICT (id) DO NOTHING").use { statement ->
+                statement.setString(1, userId)
+                statement.executeUpdate()
+            }
+            connection.prepareStatement("INSERT INTO agents (id, name, provider, model) VALUES (?, ?, ?, ?) ON CONFLICT (id) DO NOTHING").use { statement ->
+                statement.setString(1, agentId)
+                statement.setString(2, agentId)
+                statement.setString(3, when {
+                    agentId.startsWith("gpt-") -> "openai"
+                    agentId.startsWith("gemini-") -> "gemini"
+                    agentId.startsWith("claude-") -> "anthropic"
+                    else -> "unknown"
+                })
+                statement.setString(4, agentId)
+                statement.executeUpdate()
+            }
             connection.prepareStatement(
                 """
                 INSERT INTO tasks (id, user_id, agent_id, status, input, progress)
-                VALUES (?, ?, ?, 'QUEUED', to_jsonb(?::text), 0)
+                VALUES (?, ?, ?, 'QUEUED', jsonb_build_object('prompt', ?::text), 0)
                 """.trimIndent()
             ).use { statement ->
                 statement.setObject(1, id)
@@ -31,6 +54,36 @@ class TaskRepository {
         }
 
     fun markRunning(id: UUID) = updateStatus(id, TaskStatus.RUNNING, 0.1f, null, null)
+
+    fun claimNextQueued(): TaskExecution? = DatabaseFactory.transaction { connection ->
+        connection.prepareStatement(
+            """
+            SELECT id, user_id, agent_id, input->>'prompt' AS prompt
+            FROM tasks
+            WHERE status = 'QUEUED'
+            ORDER BY created_at ASC
+            FOR UPDATE SKIP LOCKED
+            LIMIT 1
+            """.trimIndent()
+        ).use { statement ->
+            statement.executeQuery().use { rs ->
+                if (!rs.next()) return@transaction null
+                val task = TaskExecution(
+                    id = rs.getObject("id", UUID::class.java),
+                    userId = rs.getString("user_id"),
+                    agentId = rs.getString("agent_id"),
+                    prompt = rs.getString("prompt")
+                )
+                connection.prepareStatement(
+                    "UPDATE tasks SET status = 'RUNNING', progress = 0.1, started_at = NOW() WHERE id = ?"
+                ).use { update ->
+                    update.setObject(1, task.id)
+                    update.executeUpdate()
+                }
+                task
+            }
+        }
+    }
 
     fun markCompleted(id: UUID, output: String) =
         updateStatus(id, TaskStatus.COMPLETED, 1f, null, output)

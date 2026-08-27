@@ -140,6 +140,10 @@ fun Application.module() {
                     )
                 }
 
+                if (aiRegistry.get(request.agentId) == null) {
+                    return@post call.respond(io.ktor.http.HttpStatusCode.BadRequest, mapOf("error" to "Unsupported or unconfigured agentId"))
+                }
+
                 val idempotencyKey = request.idempotencyKey?.trim()?.takeIf { it.isNotEmpty() }
                 if (idempotencyKey != null && idempotencyKey.length > 128) {
                     return@post call.respond(io.ktor.http.HttpStatusCode.BadRequest, mapOf("error" to "idempotencyKey too long"))

@@ -7,7 +7,7 @@ import io.ktor.server.routing.*
 import io.ktor.server.response.*
 import io.ktor.server.request.*
 import io.ktor.server.auth.*
-import io.ktor.server.auth.jwt.*
+import io.ktor.server.auth.bearer.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.plugins.contentnegotiation.*
 import io.ktor.server.websocket.*
@@ -15,7 +15,8 @@ import io.ktor.websocket.*
 import kotlinx.coroutines.channels.consumeEach
 import com.hakayat.backend.ai.adapters.*
 import com.hakayat.backend.realtime.WebSocketManager
-import com.hakayat.backend.auth.JwtConfig
+import com.hakayat.backend.auth.FirebaseAuthConfig
+import com.hakayat.backend.auth.FirebaseUserPrincipal
 import kotlin.time.Duration.Companion.seconds
 
 fun main() {
@@ -27,13 +28,15 @@ fun Application.module() {
         json()
     }
     
+    FirebaseAuthConfig.initialize()
+
     install(Authentication) {
-        jwt("auth-jwt") {
-            verifier(JwtConfig.verifier)
-            validate { credential ->
-                if (credential.payload.getClaim("userId").asString() != "") {
-                    JWTPrincipal(credential.payload)
-                } else {
+        bearer("firebase") {
+            authenticate { credentials ->
+                try {
+                    FirebaseAuthConfig.verifyIdToken(credentials.token)
+                } catch (e: Exception) {
+                    application.log.warn("Firebase authentication failed: ${e.javaClass.simpleName}")
                     null
                 }
             }
@@ -50,9 +53,12 @@ fun Application.module() {
     val webSocketManager = WebSocketManager()
     
     // تهيئة الوكلاء
-    val openAiAdapter = OpenAiAdapter(System.getenv("OPENAI_API_KEY") ?: "dummy-key")
-    val geminiAdapter = GeminiAdapter(System.getenv("GEMINI_API_KEY") ?: "dummy-key")
-    val claudeAdapter = ClaudeAdapter(System.getenv("ANTHROPIC_API_KEY") ?: "dummy-key")
+    val openAiAdapter = OpenAiAdapter(System.getenv("OPENAI_API_KEY")
+        ?: error("OPENAI_API_KEY must be configured"))
+    val geminiAdapter = GeminiAdapter(System.getenv("GEMINI_API_KEY")
+        ?: error("GEMINI_API_KEY must be configured"))
+    val claudeAdapter = ClaudeAdapter(System.getenv("ANTHROPIC_API_KEY")
+        ?: error("ANTHROPIC_API_KEY must be configured"))
     
     val agentsMap = mapOf(
         openAiAdapter.agentId to openAiAdapter,
@@ -95,22 +101,8 @@ fun Application.module() {
             }
         }
         
-        webSocket("/api/v1/ws") {
-            // ملاحظة: من الأفضل تمرير الـ Token في معلمات الـ WebSocket للتحقق منه، هنا للتبسيط نقرأه كمعلمة.
-            val userId = call.request.queryParameters["userId"] ?: "anonymous"
-            
-            webSocketManager.addSession(userId, this)
-            try {
-                send("تم الاتصال بنجاح بـ AI Hub.")
-                incoming.consumeEach { frame ->
-                    if (frame is Frame.Text) {
-                        println("Received WS message from $userId: ${frame.readText()}")
-                    }
-                }
-            } finally {
-                webSocketManager.removeSession(userId, this)
-            }
-        }
+        // Realtime authentication will be added through a short-lived ticket flow
+        // once task persistence is in place. Anonymous/query-string identities are rejected.
     }
 }
 

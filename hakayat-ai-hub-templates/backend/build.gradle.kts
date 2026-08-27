@@ -44,6 +44,9 @@ dependencies {
     implementation("org.jetbrains.exposed:exposed-jdbc:$exposedVersion")
     implementation("com.zaxxer:HikariCP:5.1.0")
     implementation("org.postgresql:postgresql:42.7.2")
+    implementation("com.google.firebase:firebase-admin:9.10.0")
+    // Firebase Admin: verifies client-issued Firebase ID tokens on the backend.
+    implementation("com.google.firebase:firebase-admin:9.10.0")
     
     // Logging
     implementation("ch.qos.logback:logback-classic:1.4.14")

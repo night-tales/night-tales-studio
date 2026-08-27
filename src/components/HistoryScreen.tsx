@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Bot, User, Clock, Search, Trash2 } from 'lucide-react';
-import { db } from '../lib/firebase';
-import { collection, query, orderBy, onSnapshot, getDocs, deleteDoc, doc } from 'firebase/firestore';
+import { auth, db } from '../lib/firebase';
+import { collection, query, where, orderBy, onSnapshot, getDocs, deleteDoc, doc } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../lib/firebaseUtils';
 
 interface HistoryMessage {
@@ -18,7 +18,18 @@ export default function HistoryScreen() {
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
-    const q = query(collection(db, 'messages'), orderBy('createdAt', 'desc'));
+    const user = auth.currentUser;
+    if (!user) {
+      setMessages([]);
+      setLoading(false);
+      return;
+    }
+
+    const q = query(
+      collection(db, 'messages'),
+      where('userId', '==', user.uid),
+      orderBy('createdAt', 'desc')
+    );
     
     const unsubscribe = onSnapshot(
       q,
@@ -43,7 +54,9 @@ export default function HistoryScreen() {
   const clearHistory = async () => {
     if (!window.confirm('هل أنت متأكد من مسح جميع سجلات المحادثة؟')) return;
     try {
-      const q = query(collection(db, 'messages'));
+      const user = auth.currentUser;
+      if (!user) return;
+      const q = query(collection(db, 'messages'), where('userId', '==', user.uid));
       const snapshot = await getDocs(q);
       const deletePromises = snapshot.docs.map(document => deleteDoc(doc(db, 'messages', document.id)));
       await Promise.all(deletePromises);

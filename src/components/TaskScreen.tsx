@@ -3,9 +3,8 @@ import { useLocation } from 'react-router-dom';
 import { Send, Bot, User, Paperclip, Loader2, StopCircle, Settings, Activity } from 'lucide-react';
 import { AVAILABLE_AGENTS, Message, Agent } from '../models';
 import { auth, db } from '../lib/firebase';
-import { collection, addDoc, serverTimestamp, doc, getDoc, onSnapshot, query, where } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, onSnapshot, query, where } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../lib/firebaseUtils';
-import { decryptKey } from '../lib/crypto';
 import { Link } from 'react-router-dom';
 
 interface AiTask {
@@ -38,43 +37,27 @@ export default function TaskScreen() {
 
   useEffect(() => {
     const loadAvailableAgents = async () => {
-      if (!auth.currentUser) {
-        setLoadingAgents(false);
-        return;
-      }
       try {
-        const docRef = doc(db, 'userKeys', auth.currentUser.uid);
-        const docSnap = await getDoc(docRef);
-        
-        let validProviders = new Set<string>();
-        if (docSnap.exists()) {
-          const data = docSnap.data();
-          const providersToCheck = ['openai', 'anthropic', 'gemini', 'deepseek', 'aimlapi'];
-          for (const provider of providersToCheck) {
-            if (data[provider] && decryptKey(data[provider], auth.currentUser.uid)) {
-              validProviders.add(provider);
-            }
-          }
-        }
-        
+        const response = await fetch('/api/providers');
+        if (!response.ok) throw new Error('Failed to load provider availability');
+        const data = await response.json();
+        const validProviders = new Set<string>(data.providers || []);
         const filteredAgents = AVAILABLE_AGENTS.filter(agent => validProviders.has(agent.provider));
         setAvailableAgents(filteredAgents);
-        
-        // Update selected agent if current one is not available
-        if (filteredAgents.length > 0) {
-          if (!filteredAgents.find(a => a.id === selectedAgentId)) {
-            setSelectedAgentId(filteredAgents[0].id);
-          }
+
+        if (filteredAgents.length > 0 && !filteredAgents.find(agent => agent.id === selectedAgentId)) {
+          setSelectedAgentId(filteredAgents[0].id);
         }
       } catch (error) {
         console.error("Failed to load available agents", error);
+        setAvailableAgents([]);
       } finally {
         setLoadingAgents(false);
       }
     };
 
     loadAvailableAgents();
-  }, []);
+  }, [selectedAgentId]);
 
   useEffect(() => {
     if (!auth.currentUser) return;
@@ -108,6 +91,7 @@ export default function TaskScreen() {
   const saveMessageToFirestore = async (msgRole: 'user' | 'assistant' | 'tool', content: string, agentName?: string) => {
     try {
       await addDoc(collection(db, 'messages'), {
+        userId: auth.currentUser?.uid,
         role: msgRole,
         content: content,
         agentName: agentName || null,
@@ -116,24 +100,6 @@ export default function TaskScreen() {
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'messages');
     }
-  };
-
-  const getApiKeyForProvider = async (provider: string): Promise<string | undefined> => {
-    if (!auth.currentUser) return undefined;
-    try {
-      const docRef = doc(db, 'userKeys', auth.currentUser.uid);
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        const encryptedKey = data[provider];
-        if (encryptedKey) {
-          return decryptKey(encryptedKey, auth.currentUser.uid);
-        }
-      }
-    } catch (error) {
-      console.error("Failed to load API key", error);
-    }
-    return undefined;
   };
 
   const handleSend = async () => {
@@ -157,15 +123,12 @@ export default function TaskScreen() {
     const provider = agent?.provider || 'openai';
 
     try {
-      const apiKey = await getApiKeyForProvider(provider);
-
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           provider: provider,
           model: agent?.model || "gpt-4o",
-          apiKey: apiKey,
           messages: messages.concat(userMessage).map(m => ({ role: m.role, content: m.content }))
         })
       });

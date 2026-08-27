@@ -34,11 +34,11 @@ class GeminiProviderAdapter(
         val body = buildJsonObject {
             put("model", request.model)
             put("input", request.prompt)
-            request.maxTokens?.let {
-                put("generation_config", buildJsonObject { put("max_output_tokens", it) })
-            }
-            request.temperature?.let {
-                put("generation_config", buildJsonObject { put("temperature", it) })
+            if (request.maxTokens != null || request.temperature != null) {
+                put("generation_config", buildJsonObject {
+                    request.maxTokens?.let { put("max_output_tokens", it) }
+                    request.temperature?.let { put("temperature", it) }
+                })
             }
         }
 

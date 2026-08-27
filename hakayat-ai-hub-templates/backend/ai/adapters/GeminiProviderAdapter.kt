@@ -18,6 +18,10 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import com.hakayat.backend.ai.AiStreamEvent
+import com.hakayat.backend.ai.parseObject
+import com.hakayat.backend.ai.parseSse
+import kotlinx.coroutines.flow.Flow
 
 class GeminiProviderAdapter(
     private val apiKey: String,
@@ -26,6 +30,38 @@ class GeminiProviderAdapter(
     private val json: Json = Json { ignoreUnknownKeys = true }
 ) : AiProviderAdapter {
     override val provider = AiProvider.GEMINI
+
+    override fun stream(request: AiRequest): Flow<AiStreamEvent> = kotlinx.coroutines.flow.flow {
+        if (apiKey.isBlank()) { emit(AiStreamEvent.Failed(IllegalArgumentException("Gemini API key is not configured"))); return@flow }
+        if (request.prompt.isBlank()) { emit(AiStreamEvent.Failed(IllegalArgumentException("Prompt must not be blank"))); return@flow }
+        val body = buildJsonObject {
+            put("model", request.model)
+            put("input", request.prompt)
+            put("stream", true)
+            request.temperature?.let { put("temperature", it) }
+            request.maxTokens?.let { put("max_output_tokens", it) }
+        }
+        val response = client.post(endpoint) {
+            contentType(ContentType.Application.Json)
+            header("x-goog-api-key", "$apiKey")
+            setBody(body)
+        }
+        var requestId: String? = null
+        val text = StringBuilder()
+        parseSse(response.bodyAsChannel()) { event, data ->
+            val root = json.parseObject(data)
+            when (event ?: root["event_type"]?.jsonPrimitive?.content ?: root["type"]?.jsonPrimitive?.content) {
+                "interaction.created" -> { requestId = root["interaction"]?.jsonObject?.get("id")?.jsonPrimitive?.content; emit(AiStreamEvent.Started(requestId)) }
+                "step.delta" -> root["delta"]?.jsonObject?.let { d -> if (d["type"]?.jsonPrimitive?.content == "text") d["text"]?.jsonPrimitive?.content?.let { text.append(it); emit(AiStreamEvent.TextDelta(it)) } }
+                "interaction.completed" -> {
+                    val i = root["interaction"]?.jsonObject ?: root
+                    val usage = i["usage"]?.jsonObject
+                    emit(AiStreamEvent.Completed(AiResponse(text.toString(), AiUsage(usage?.get("total_input_tokens")?.jsonPrimitive?.long ?: 0, usage?.get("total_output_tokens")?.jsonPrimitive?.long ?: 0), i["status"]?.jsonPrimitive?.content, i["id"]?.jsonPrimitive?.content ?: requestId)))
+                }
+                "error" -> emit(AiStreamEvent.Failed(IllegalStateException(data)))
+            }
+        }
+    }
 
     override suspend fun complete(request: AiRequest): Result<AiResponse> = runCatching {
         require(apiKey.isNotBlank()) { "Gemini API key is not configured" }

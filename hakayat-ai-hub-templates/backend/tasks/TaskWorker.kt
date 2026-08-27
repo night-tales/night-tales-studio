@@ -9,6 +9,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 class TaskWorker(
     private val scope: CoroutineScope,
@@ -36,7 +37,9 @@ class TaskWorker(
             )
 
             try {
-                val result = orchestrator.executeTask(task.prompt, task.agentId)
+                val result = withLease(task.id) {
+                    orchestrator.executeTask(task.prompt, task.agentId)
+                }
                 repository.markCompleted(task.id, result)
                 repository.addEvent(task.id, "completed", """{"progress":1}""")
                 webSocketManager.sendProgressUpdate(
@@ -69,3 +72,10 @@ class TaskWorker(
         }
     }
 }
+
+
+private suspend fun <T> withLease(
+    taskId: java.util.UUID,
+    leaseRenewal: suspend () -> Boolean = { true },
+    block: suspend () -> T
+): T = block()

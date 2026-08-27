@@ -3,6 +3,8 @@ import { Home, MessageSquare, Clock, Settings, Bot, Map as MapIcon } from 'lucid
 import HomeScreen from './components/HomeScreen';
 import TaskScreen from './components/TaskScreen';
 import MapScreen from './components/MapScreen';
+import HistoryScreen from './components/HistoryScreen';
+import SettingsScreen from './components/SettingsScreen';
 
 function App() {
   const location = useLocation();
@@ -28,6 +30,8 @@ function App() {
             <Route path="/" element={<HomeScreen />} />
             <Route path="/task" element={<TaskScreen />} />
             <Route path="/map" element={<MapScreen />} />
+            <Route path="/history" element={<HistoryScreen />} />
+            <Route path="/settings" element={<SettingsScreen />} />
           </Routes>
         </main>
 

@@ -15,10 +15,11 @@ export interface Agent {
 }
 
 export const AVAILABLE_AGENTS: Agent[] = [
-  { id: 'chatgpt', name: 'ChatGPT (OpenAI)', provider: 'AIML', model: 'gpt-4o', description: 'General intelligence, planning, coding.' },
-  { id: 'claude', name: 'Claude (Anthropic)', provider: 'AIML', model: 'claude-3-opus-20240229', description: 'Long context, document analysis, writing.' },
-  { id: 'gemini', name: 'Gemini (Google)', provider: 'AIML', model: 'gemini-1.5-pro', description: 'Multimodal, search, Google ecosystem.' },
-  { id: 'llama', name: 'Llama 3 (Meta)', provider: 'AIML', model: 'meta-llama/Llama-3-70b-chat-hf', description: 'Fast, open-source intelligence.' }
+  { id: 'gpt-4o', name: 'GPT-4o (OpenAI)', provider: 'openai', model: 'gpt-4o', description: 'Advanced intelligence from OpenAI.' },
+  { id: 'claude', name: 'Claude 3.5 Sonnet (Anthropic)', provider: 'anthropic', model: 'claude-3-5-sonnet-20240620', description: 'Advanced reasoning from Anthropic.' },
+  { id: 'gemini', name: 'Gemini 1.5 Pro (Google)', provider: 'gemini', model: 'gemini-1.5-pro', description: 'Multimodal capabilities from Google.' },
+  { id: 'deepseek', name: 'DeepSeek Chat', provider: 'deepseek', model: 'deepseek-chat', description: 'Fast and smart coding assistant.' },
+  { id: 'aimlapi', name: 'Llama 3 70B (AIMLAPI)', provider: 'aimlapi', model: 'meta-llama/Llama-3-70b-chat-hf', description: 'Open source models via AIMLAPI.' }
 ];
 
 export interface TaskUiState {

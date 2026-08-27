@@ -42,6 +42,7 @@ class GeminiProviderAdapter(
             request.maxTokens?.let { put("max_output_tokens", it) }
         }
         val response = client.post(endpoint) {
+            expectSuccess = true
             contentType(ContentType.Application.Json)
             header("x-goog-api-key", "$apiKey")
             setBody(body)

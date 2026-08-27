@@ -50,7 +50,7 @@ class AnthropicProviderAdapter(
         var text = StringBuilder()
         var inputTokens = 0L
         var outputTokens = 0L
-        parseSse(response.bodyAsChannel(), json) { event, data ->
+        parseSse(response.bodyAsChannel()) { event, data ->
             val root = json.parseObject(data)
             when (event ?: root["type"]?.jsonPrimitive?.content) {
                 "message_start" -> {
@@ -67,7 +67,7 @@ class AnthropicProviderAdapter(
                 "message_stop" -> emit(AiStreamEvent.Completed(AiResponse(text.toString(), AiUsage(inputTokens, outputTokens), providerRequestId = requestId)))
                 "error" -> emit(AiStreamEvent.Failed(IllegalStateException(data)))
             }
-        }.collect {}
+        }
     }
 
     override suspend fun complete(request: AiRequest): Result<AiResponse> = runCatching {

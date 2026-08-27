@@ -1,6 +1,5 @@
 package com.hakayat.backend.tasks
 
-import com.hakayat.backend.db.TaskRepository
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.coroutineScope
@@ -9,7 +8,7 @@ import kotlinx.coroutines.launch
 
 suspend fun <T> executeWithLease(
     taskId: java.util.UUID,
-    repository: TaskRepository,
+    repository: TaskLease,
     block: suspend () -> T
 ): T = coroutineScope {
     val renewal = launch {
@@ -26,4 +25,9 @@ suspend fun <T> executeWithLease(
     } finally {
         renewal.cancel()
     }
+}
+
+
+interface TaskLease {
+    fun renewLease(id: java.util.UUID): Boolean
 }

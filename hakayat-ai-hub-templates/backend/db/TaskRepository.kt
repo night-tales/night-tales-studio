@@ -18,7 +18,7 @@ data class TaskRecord(
     val output: String? = null
 )
 
-class TaskRepository {
+class TaskRepository(private val workerId: String = UUID.randomUUID().toString()) {
     fun create(userId: String, agentId: String, prompt: String, idempotencyKey: String? = null): TaskRecord =
         DatabaseFactory.transaction { connection ->
             val id = UUID.randomUUID()
@@ -61,7 +61,8 @@ class TaskRepository {
             """
             SELECT id, user_id, agent_id, input->>'prompt' AS prompt
             FROM tasks
-            WHERE status = 'QUEUED' AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())
+            WHERE (status = 'QUEUED' AND (next_attempt_at IS NULL OR next_attempt_at <= NOW()))
+               OR (status = 'RUNNING' AND lease_expires_at < NOW())
             ORDER BY created_at ASC
             FOR UPDATE SKIP LOCKED
             LIMIT 1
@@ -76,13 +77,22 @@ class TaskRepository {
                     prompt = rs.getString("prompt")
                 )
                 connection.prepareStatement(
-                    "UPDATE tasks SET status = 'RUNNING', progress = 0.1, started_at = NOW() WHERE id = ?"
+                    "UPDATE tasks SET status = 'RUNNING', progress = 0.1, started_at = COALESCE(started_at, NOW()), lease_owner = ?, lease_expires_at = NOW() + INTERVAL '60 seconds' WHERE id = ?"
                 ).use { update ->
-                    update.setObject(1, task.id)
+                    update.setString(1, workerId)
+                    update.setObject(2, task.id)
                     update.executeUpdate()
                 }
                 task
             }
+        }
+    }
+
+    fun renewLease(id: UUID): Boolean = DatabaseFactory.transaction { connection ->
+        connection.prepareStatement("UPDATE tasks SET lease_expires_at = NOW() + INTERVAL '60 seconds' WHERE id = ? AND lease_owner = ? AND status = 'RUNNING'").use { statement ->
+            statement.setObject(1, id)
+            statement.setString(2, workerId)
+            statement.executeUpdate() == 1
         }
     }
 
@@ -127,7 +137,7 @@ class TaskRepository {
         DatabaseFactory.transaction { connection ->
             val sql = when (status) {
                 TaskStatus.RUNNING ->
-                    "UPDATE tasks SET status = ?, progress = ?, started_at = NOW() WHERE id = ?"
+                    "UPDATE tasks SET status = ?, progress = ?, started_at = NOW(), lease_owner = ?, lease_expires_at = NOW() + INTERVAL '60 seconds' WHERE id = ?"
                 TaskStatus.COMPLETED ->
                     "UPDATE tasks SET status = ?, progress = ?, output = to_jsonb(?::text), completed_at = NOW() WHERE id = ?"
                 TaskStatus.FAILED ->
@@ -148,6 +158,12 @@ class TaskRepository {
                         statement.setString(1, status.name)
                         statement.setFloat(2, progress)
                         statement.setString(3, error)
+                        statement.setObject(4, id)
+                    }
+                    TaskStatus.RUNNING -> {
+                        statement.setString(1, status.name)
+                        statement.setFloat(2, progress)
+                        statement.setString(3, workerId)
                         statement.setObject(4, id)
                     }
                     else -> {

@@ -19,6 +19,6 @@ class LeaseRenewalTest {
     }
 }
 
-private class FakeTaskRepository : com.hakayat.backend.db.TaskRepository() {
+private class FakeTaskRepository : TaskLease {
     override fun renewLease(id: java.util.UUID): Boolean = true
 }

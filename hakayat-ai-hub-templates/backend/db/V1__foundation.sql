@@ -52,6 +52,11 @@ CREATE TABLE IF NOT EXISTS tasks (
     progress REAL NOT NULL DEFAULT 0 CHECK (progress >= 0 AND progress <= 1),
     error TEXT,
     retry_count INTEGER NOT NULL DEFAULT 0,
+    max_retries INTEGER NOT NULL DEFAULT 3,
+    next_attempt_at TIMESTAMPTZ,
+    lease_owner TEXT,
+    lease_expires_at TIMESTAMPTZ,
+    idempotency_key TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     started_at TIMESTAMPTZ,
     completed_at TIMESTAMPTZ
@@ -139,3 +144,8 @@ CREATE INDEX IF NOT EXISTS idx_usage_user_created
 
 CREATE INDEX IF NOT EXISTS idx_artifacts_user_created
     ON artifacts(user_id, created_at DESC);
+
+
+CREATE INDEX IF NOT EXISTS idx_tasks_lease_expiry
+    ON tasks(lease_expires_at)
+    WHERE status = 'RUNNING';

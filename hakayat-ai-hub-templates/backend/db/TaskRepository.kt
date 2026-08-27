@@ -18,7 +18,7 @@ data class TaskRecord(
     val output: String? = null
 )
 
-class TaskRepository(private val workerId: String = UUID.randomUUID().toString()) {
+class TaskRepository(private val workerId: String = UUID.randomUUID().toString()) : com.hakayat.backend.tasks.TaskLease {
     fun create(userId: String, agentId: String, prompt: String, idempotencyKey: String? = null): TaskRecord =
         DatabaseFactory.transaction { connection ->
             val id = UUID.randomUUID()

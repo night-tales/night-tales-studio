@@ -112,6 +112,14 @@ CREATE INDEX IF NOT EXISTS idx_tasks_user_created
 CREATE INDEX IF NOT EXISTS idx_tasks_status_created
     ON tasks(status, created_at ASC);
 
+CREATE INDEX IF NOT EXISTS idx_tasks_claimable
+    ON tasks(status, next_attempt_at, created_at)
+    WHERE status = 'QUEUED';
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_user_idempotency
+    ON tasks(user_id, idempotency_key)
+    WHERE idempotency_key IS NOT NULL;
+
 CREATE INDEX IF NOT EXISTS idx_task_events_task_created
     ON task_events(task_id, created_at ASC);
 

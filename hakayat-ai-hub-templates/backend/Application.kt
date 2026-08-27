@@ -17,6 +17,8 @@ import com.hakayat.backend.ai.adapters.*
 import com.hakayat.backend.realtime.WebSocketManager
 import com.hakayat.backend.auth.FirebaseAuthConfig
 import com.hakayat.backend.auth.FirebaseUserPrincipal
+import com.hakayat.backend.db.DatabaseFactory
+import com.hakayat.backend.db.TaskRepository
 import kotlin.time.Duration.Companion.seconds
 
 fun main() {
@@ -29,6 +31,7 @@ fun Application.module() {
     }
     
     FirebaseAuthConfig.initialize()
+    DatabaseFactory.initialize()
 
     install(Authentication) {
         bearer("firebase") {
@@ -51,6 +54,7 @@ fun Application.module() {
     }
     
     val webSocketManager = WebSocketManager()
+    val taskRepository = TaskRepository()
     
     // تهيئة الوكلاء
     val openAiAdapter = OpenAiAdapter(System.getenv("OPENAI_API_KEY")
@@ -99,6 +103,22 @@ fun Application.module() {
                 
                 call.respond(mapOf("status" to "success", "result" to result))
             }
+            get("/api/v1/tasks/{taskId}") {
+                val principal = call.principal<FirebaseUserPrincipal>()
+                    ?: return@get call.respond(io.ktor.http.HttpStatusCode.Unauthorized)
+                val taskId = call.parameters["taskId"]?.let {
+                    runCatching { java.util.UUID.fromString(it) }.getOrNull()
+                } ?: return@get call.respond(
+                    io.ktor.http.HttpStatusCode.BadRequest,
+                    mapOf("error" to "Invalid taskId")
+                )
+
+                val task = taskRepository.findOwned(taskId, principal.uid)
+                    ?: return@get call.respond(io.ktor.http.HttpStatusCode.NotFound)
+
+                call.respond(task)
+            }
+
         }
         
         // Realtime authentication will be added through a short-lived ticket flow

@@ -52,6 +52,11 @@ CREATE TABLE IF NOT EXISTS tasks (
     progress REAL NOT NULL DEFAULT 0 CHECK (progress >= 0 AND progress <= 1),
     error TEXT,
     retry_count INTEGER NOT NULL DEFAULT 0,
+    max_retries INTEGER NOT NULL DEFAULT 3,
+    next_attempt_at TIMESTAMPTZ,
+    lease_owner TEXT,
+    lease_expires_at TIMESTAMPTZ,
+    idempotency_key TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     started_at TIMESTAMPTZ,
     completed_at TIMESTAMPTZ

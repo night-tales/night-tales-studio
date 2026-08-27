@@ -76,6 +76,17 @@ CREATE TABLE IF NOT EXISTS provider_accounts (
     UNIQUE (user_id, provider)
 );
 
+CREATE TABLE IF NOT EXISTS realtime_tickets (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL UNIQUE,
+    expires_at TIMESTAMPTZ NOT NULL,
+    used_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_realtime_tickets_expiry ON realtime_tickets(expires_at);
+
 CREATE TABLE IF NOT EXISTS usage_records (
     id BIGSERIAL PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -111,6 +122,14 @@ CREATE INDEX IF NOT EXISTS idx_tasks_user_created
 
 CREATE INDEX IF NOT EXISTS idx_tasks_status_created
     ON tasks(status, created_at ASC);
+
+CREATE INDEX IF NOT EXISTS idx_tasks_claimable
+    ON tasks(status, next_attempt_at, created_at)
+    WHERE status = 'QUEUED';
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_user_idempotency
+    ON tasks(user_id, idempotency_key)
+    WHERE idempotency_key IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_task_events_task_created
     ON task_events(task_id, created_at ASC);

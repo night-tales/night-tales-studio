@@ -47,14 +47,24 @@ class TaskWorker(
                 )
             } catch (error: Exception) {
                 val message = error.message ?: "Task execution failed"
-                repository.markFailed(task.id, message)
-                repository.addEvent(task.id, "failed", """{"progress":0}""")
-                webSocketManager.sendProgressUpdate(
-                    task.userId,
-                    task.id.toString(),
-                    0f,
-                    "فشلت المهمة"
-                )
+                if (repository.retry(task.id, message, 0)) {
+                    repository.addEvent(task.id, "retry_scheduled")
+                    webSocketManager.sendProgressUpdate(
+                        task.userId,
+                        task.id.toString(),
+                        0.1f,
+                        "تعذر التنفيذ، ستتم إعادة المحاولة..."
+                    )
+                } else {
+                    repository.markFailed(task.id, message)
+                    repository.addEvent(task.id, "failed", """{"progress":0}""")
+                    webSocketManager.sendProgressUpdate(
+                        task.userId,
+                        task.id.toString(),
+                        0f,
+                        "فشلت المهمة"
+                    )
+                }
             }
         }
     }

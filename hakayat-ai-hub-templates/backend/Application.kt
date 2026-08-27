@@ -6,6 +6,10 @@ import com.hakayat.backend.auth.FirebaseUserPrincipal
 import com.hakayat.backend.db.DatabaseFactory
 import com.hakayat.backend.db.TaskRepository
 import com.hakayat.backend.realtime.WebSocketManager
+import com.hakayat.backend.realtime.RealtimeTicketRepository
+import io.ktor.server.websocket.*
+import io.ktor.websocket.*
+import kotlin.time.Duration.Companion.seconds
 import com.hakayat.backend.tasks.TaskWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -31,6 +35,11 @@ fun Application.module() {
     install(ContentNegotiation) {
         json()
     }
+    install(WebSockets) {
+        pingPeriod = 15.seconds
+        timeout = 30.seconds
+        maxFrameSize = 64 * 1024
+    }
 
     FirebaseAuthConfig.initialize()
     DatabaseFactory.initialize()
@@ -49,6 +58,7 @@ fun Application.module() {
     }
 
     val webSocketManager = WebSocketManager()
+    val realtimeTickets = RealtimeTicketRepository()
     val taskRepository = TaskRepository()
 
     val openAiAdapter = OpenAiAdapter(
@@ -79,6 +89,23 @@ fun Application.module() {
             call.respond(mapOf("status" to "ok"))
         }
 
+        webSocket("/api/v1/realtime") {
+            val ticket = call.request.queryParameters["ticket"]
+            val userId = ticket?.let { realtimeTickets.consume(it) }
+            if (userId == null) {
+                close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "Invalid realtime ticket"))
+                return@webSocket
+            }
+            webSocketManager.addSession(userId, this)
+            try {
+                for (frame in incoming) {
+                    if (frame is Frame.Close) break
+                }
+            } finally {
+                webSocketManager.removeSession(userId, this)
+            }
+        }
+
         authenticate("firebase") {
             get("/api/v1/auth/me") {
                 val principal = call.principal<FirebaseUserPrincipal>()
@@ -88,6 +115,12 @@ fun Application.module() {
                     "uid" to principal.uid,
                     "claims" to principal.claims
                 ))
+            }
+
+            post("/api/v1/realtime/ticket") {
+                val principal = call.principal<FirebaseUserPrincipal>()
+                    ?: return@post call.respond(io.ktor.http.HttpStatusCode.Unauthorized)
+                call.respond(mapOf("ticket" to realtimeTickets.issue(principal.uid), "expiresInSeconds" to 60))
             }
 
             post("/api/v1/tasks") {
@@ -108,11 +141,28 @@ fun Application.module() {
                     )
                 }
 
-                val task = taskRepository.create(
-                    userId = principal.uid,
-                    agentId = request.agentId,
-                    prompt = request.prompt
-                )
+                val idempotencyKey = request.idempotencyKey?.trim()?.takeIf { it.isNotEmpty() }
+                if (idempotencyKey != null && idempotencyKey.length > 128) {
+                    return@post call.respond(io.ktor.http.HttpStatusCode.BadRequest, mapOf("error" to "idempotencyKey too long"))
+                }
+                val existing = idempotencyKey?.let { taskRepository.findByIdempotencyKey(principal.uid, it) }
+                if (existing != null) {
+                    return@post call.respond(io.ktor.http.HttpStatusCode.Accepted, mapOf("status" to "existing", "taskId" to existing.id.toString()))
+                }
+                val task = try {
+                    taskRepository.create(
+                        userId = principal.uid,
+                        agentId = request.agentId,
+                        prompt = request.prompt,
+                        idempotencyKey = idempotencyKey
+                    )
+                } catch (e: Exception) {
+                    if (idempotencyKey != null) {
+                        val raced = taskRepository.findByIdempotencyKey(principal.uid, idempotencyKey)
+                        if (raced != null) return@post call.respond(io.ktor.http.HttpStatusCode.Accepted, mapOf("status" to "existing", "taskId" to raced.id.toString()))
+                    }
+                    throw e
+                }
 
                 call.respond(
                     io.ktor.http.HttpStatusCode.Accepted,
@@ -121,6 +171,18 @@ fun Application.module() {
                         "taskId" to task.id.toString()
                     )
                 )
+            }
+
+            delete("/api/v1/tasks/{taskId}") {
+                val principal = call.principal<FirebaseUserPrincipal>()
+                    ?: return@delete call.respond(io.ktor.http.HttpStatusCode.Unauthorized)
+                val taskId = call.parameters["taskId"]?.let { runCatching { java.util.UUID.fromString(it) }.getOrNull() }
+                    ?: return@delete call.respond(io.ktor.http.HttpStatusCode.BadRequest)
+                if (!taskRepository.cancelOwned(taskId, principal.uid)) {
+                    return@delete call.respond(io.ktor.http.HttpStatusCode.Conflict, mapOf("error" to "Task is not cancellable"))
+                }
+                taskRepository.addEvent(taskId, "cancelled")
+                call.respond(mapOf("status" to "cancelled", "taskId" to taskId.toString()))
             }
 
             get("/api/v1/tasks/{taskId}") {
@@ -144,4 +206,4 @@ fun Application.module() {
 }
 
 @Serializable
-data class TaskRequest(val prompt: String, val agentId: String)
+data class TaskRequest(val prompt: String, val agentId: String, val idempotencyKey: String? = null)

@@ -29,9 +29,8 @@ dependencies {
     implementation("io.ktor:ktor-server-content-negotiation-jvm:$ktorVersion")
     implementation("io.ktor:ktor-serialization-kotlinx-json-jvm:$ktorVersion")
     
-    // Authentication (JWT)
+    // Authentication
     implementation("io.ktor:ktor-server-auth-jvm:$ktorVersion")
-    implementation("io.ktor:ktor-server-auth-jwt-jvm:$ktorVersion")
     
     // Ktor Client (For AI Adapters)
     implementation("io.ktor:ktor-client-core:$ktorVersion")
@@ -44,7 +43,6 @@ dependencies {
     implementation("org.jetbrains.exposed:exposed-jdbc:$exposedVersion")
     implementation("com.zaxxer:HikariCP:5.1.0")
     implementation("org.postgresql:postgresql:42.7.2")
-    implementation("com.google.firebase:firebase-admin:9.10.0")
     // Firebase Admin: verifies client-issued Firebase ID tokens on the backend.
     implementation("com.google.firebase:firebase-admin:9.10.0")
     

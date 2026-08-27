@@ -115,43 +115,102 @@ export default function TaskScreen() {
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     setIsLoading(true);
-    
-    // Save user message to firestore in background
     saveMessageToFirestore('user', userInput);
 
     const agent = AVAILABLE_AGENTS.find(a => a.id === selectedAgentId);
-    const provider = agent?.provider || 'openai';
 
     try {
-      const response = await fetch('/api/chat', {
+      if (!auth.currentUser) throw new Error('يجب تسجيل الدخول أولاً');
+      const token = await auth.currentUser.getIdToken();
+
+      const ticketResponse = await fetch('/api/v1/realtime/ticket', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!ticketResponse.ok) throw new Error('تعذر إنشاء قناة التحديثات');
+
+      const { ticket } = await ticketResponse.json();
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const socket = new WebSocket(`${protocol}//${window.location.host}/api/v1/realtime?ticket=${encodeURIComponent(ticket)}`);
+
+      const taskResponse = await fetch('/api/v1/tasks', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
         body: JSON.stringify({
-          provider: provider,
-          model: agent?.model || "gpt-4o",
-          messages: messages.concat(userMessage).map(m => ({ role: m.role, content: m.content }))
+          agentId: agent?.id || selectedAgentId,
+          prompt: userInput,
+          idempotencyKey: crypto.randomUUID()
         })
       });
 
-      if (!response.ok) {
-        throw new Error('فشل الاتصال بالخادم');
-      }
+      if (!taskResponse.ok) throw new Error('فشل إنشاء المهمة');
+      const { taskId } = await taskResponse.json();
 
-      const data = await response.json();
-      const responseContent = data.choices?.[0]?.message?.content || 'No response';
-      
+      const result = await new Promise<string>((resolve, reject) => {
+        let settled = false;
+        const timeout = window.setTimeout(() => {
+          if (!settled) {
+            settled = true;
+            socket.close();
+            reject(new Error('انتهت مهلة تنفيذ المهمة'));
+          }
+        }, 120_000);
+
+        socket.onmessage = async (event) => {
+          try {
+            const update = JSON.parse(event.data);
+            if (update.taskId !== taskId) return;
+
+            if (update.progress >= 1) {
+              const statusResponse = await fetch(`/api/v1/tasks/${taskId}`, {
+                headers: { Authorization: `Bearer ${token}` }
+              });
+              if (!statusResponse.ok) throw new Error('تعذر قراءة نتيجة المهمة');
+              const task = await statusResponse.json();
+              if (task.status === 'COMPLETED') {
+                settled = true;
+                window.clearTimeout(timeout);
+                socket.close();
+                resolve(task.output || 'اكتملت المهمة');
+              }
+            } else if (update.message?.includes('فشلت')) {
+              settled = true;
+              window.clearTimeout(timeout);
+              socket.close();
+              reject(new Error('فشل تنفيذ المهمة'));
+            }
+          } catch (error) {
+            if (!settled) {
+              settled = true;
+              window.clearTimeout(timeout);
+              socket.close();
+              reject(error);
+            }
+          }
+        };
+
+        socket.onerror = () => {
+          if (!settled) {
+            settled = true;
+            window.clearTimeout(timeout);
+            socket.close();
+            reject(new Error('انقطعت قناة التحديثات'));
+          }
+        };
+      });
+
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: responseContent,
+        content: typeof result === 'string' ? result : JSON.stringify(result),
         agentName: agent?.name
       };
 
       setMessages(prev => [...prev, assistantMessage]);
-      
-      // Save assistant message to firestore
-      saveMessageToFirestore('assistant', responseContent, agent?.name);
-      
+      saveMessageToFirestore('assistant', assistantMessage.content, assistantMessage.agentName);
     } catch (error: any) {
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),

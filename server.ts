@@ -23,6 +23,20 @@ const rateWindowMs = 60_000;
 const maxRequestsPerWindow = 30;
 const rateBuckets = new Map<string, { count: number; resetAt: number }>();
 
+app.get("/api/providers", (_req, res) => {
+  const providers = [
+    ["openai", process.env.OPENAI_API_KEY],
+    ["anthropic", process.env.ANTHROPIC_API_KEY],
+    ["gemini", process.env.GEMINI_API_KEY],
+    ["deepseek", process.env.DEEPSEEK_API_KEY],
+    ["aimlapi", process.env.AIML_API_KEY],
+  ]
+    .filter(([, key]) => Boolean(key))
+    .map(([provider]) => provider);
+
+  res.json({ providers });
+});
+
 app.use("/api/", (req, res, next) => {
   const now = Date.now();
   const key = req.ip || "unknown";

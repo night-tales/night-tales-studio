@@ -89,6 +89,23 @@ fun Application.module() {
             call.respond(mapOf("status" to "ok"))
         }
 
+        webSocket("/api/v1/realtime") {
+            val ticket = call.request.queryParameters["ticket"]
+            val userId = ticket?.let { realtimeTickets.consume(it) }
+            if (userId == null) {
+                close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "Invalid realtime ticket"))
+                return@webSocket
+            }
+            webSocketManager.addSession(userId, this)
+            try {
+                for (frame in incoming) {
+                    if (frame is Frame.Close) break
+                }
+            } finally {
+                webSocketManager.removeSession(userId, this)
+            }
+        }
+
         authenticate("firebase") {
             get("/api/v1/auth/me") {
                 val principal = call.principal<FirebaseUserPrincipal>()
@@ -154,23 +171,6 @@ fun Application.module() {
                         "taskId" to task.id.toString()
                     )
                 )
-            }
-
-            webSocket("/api/v1/realtime") {
-                val ticket = call.request.queryParameters["ticket"]
-                val userId = ticket?.let { realtimeTickets.consume(it) }
-                if (userId == null) {
-                    close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "Invalid realtime ticket"))
-                    return@webSocket
-                }
-                webSocketManager.addSession(userId, this)
-                try {
-                    for (frame in incoming) {
-                        if (frame is Frame.Close) break
-                    }
-                } finally {
-                    webSocketManager.removeSession(userId, this)
-                }
             }
 
             delete("/api/v1/tasks/{taskId}") {

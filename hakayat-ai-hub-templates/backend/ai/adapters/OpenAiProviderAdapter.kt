@@ -19,6 +19,10 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import com.hakayat.backend.ai.AiStreamEvent
+import com.hakayat.backend.ai.parseObject
+import com.hakayat.backend.ai.parseSse
+import kotlinx.coroutines.flow.Flow
 
 class OpenAiProviderAdapter(
     private val apiKey: String,
@@ -27,6 +31,38 @@ class OpenAiProviderAdapter(
     private val json: Json = Json { ignoreUnknownKeys = true }
 ) : AiProviderAdapter {
     override val provider = AiProvider.OPENAI
+
+    override fun stream(request: AiRequest): Flow<AiStreamEvent> = kotlinx.coroutines.flow.flow {
+        if (apiKey.isBlank()) { emit(AiStreamEvent.Failed(IllegalArgumentException("OpenAI API key is not configured"))); return@flow }
+        if (request.prompt.isBlank()) { emit(AiStreamEvent.Failed(IllegalArgumentException("Prompt must not be blank"))); return@flow }
+        val body = buildJsonObject {
+            put("model", request.model)
+            put("input", request.prompt)
+            put("stream", true)
+            request.temperature?.let { put("temperature", it) }
+            request.maxTokens?.let { put("max_output_tokens", it) }
+        }
+        val response = client.post(endpoint) {
+            contentType(ContentType.Application.Json)
+            header("Authorization", "Bearer $apiKey")
+            setBody(body)
+        }
+        var requestId: String? = null
+        val text = StringBuilder()
+        parseSse(response.bodyAsChannel()) { event, data ->
+            val root = json.parseObject(data)
+            when (event ?: root["event_type"]?.jsonPrimitive?.content ?: root["type"]?.jsonPrimitive?.content) {
+                "response.created" -> { requestId = root["response"]?.jsonObject?.get("id")?.jsonPrimitive?.content; emit(AiStreamEvent.Started(requestId)) }
+                "response.output_text.delta" -> root["delta"]?.jsonPrimitive?.content?.let { text.append(it); emit(AiStreamEvent.TextDelta(it)) }
+                "response.completed" -> {
+                    val r = root["response"]?.jsonObject ?: root
+                    val usage = r["usage"]?.jsonObject
+                    emit(AiStreamEvent.Completed(AiResponse(text.toString(), AiUsage(usage?.get("input_tokens")?.jsonPrimitive?.long ?: 0, usage?.get("output_tokens")?.jsonPrimitive?.long ?: 0), r["status"]?.jsonPrimitive?.content, r["id"]?.jsonPrimitive?.content ?: requestId)))
+                }
+                "error" -> emit(AiStreamEvent.Failed(IllegalStateException(data)))
+            }
+        }
+    }
 
     override suspend fun complete(request: AiRequest): Result<AiResponse> = runCatching {
         require(apiKey.isNotBlank()) { "OpenAI API key is not configured" }

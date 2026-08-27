@@ -37,7 +37,7 @@ class TaskWorker(
             )
 
             try {
-                val result = withLease(task.id) {
+                val result = executeWithLease(task.id, repository) {
                     orchestrator.executeTask(task.prompt, task.agentId)
                 }
                 repository.markCompleted(task.id, result)

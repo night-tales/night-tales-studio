@@ -2,9 +2,6 @@ package com.hakayat.backend.ai
 
 import com.hakayat.backend.db.DatabaseFactory
 
-import java.sql.Connection
-import java.sql.PreparedStatement
-
 interface UsageLedgerRepository {
     fun record(record: UsageRecord)
 }
@@ -29,21 +26,23 @@ class JdbcUsageLedgerRepository : UsageLedgerRepository {
                 estimated_cost = EXCLUDED.total_cost
         """.trimIndent()
 
-        connection.prepareStatement(sql).use { statement ->
-            statement.setString(1, record.userId)
-            statement.setString(2, record.taskId ?: "")
-            statement.setString(3, record.provider.name)
-            statement.setString(4, record.model)
-            statement.setLong(5, record.inputTokens)
-            statement.setLong(6, record.outputTokens)
-            if (record.latencyMs == null) statement.setNull(7, java.sql.Types.BIGINT) else statement.setLong(7, record.latencyMs)
-            if (record.totalCost == null) statement.setNull(8, java.sql.Types.NUMERIC) else statement.setBigDecimal(8, record.totalCost)
-            statement.setString(9, record.providerRequestId)
-            statement.setString(10, record.currency)
-            if (record.inputCost == null) statement.setNull(11, java.sql.Types.NUMERIC) else statement.setBigDecimal(11, record.inputCost)
-            if (record.outputCost == null) statement.setNull(12, java.sql.Types.NUMERIC) else statement.setBigDecimal(12, record.outputCost)
-            if (record.totalCost == null) statement.setNull(13, java.sql.Types.NUMERIC) else statement.setBigDecimal(13, record.totalCost)
-            statement.executeUpdate()
+        DatabaseFactory.transaction { connection ->
+            connection.prepareStatement(sql).use { statement ->
+                statement.setString(1, record.userId)
+                statement.setString(2, record.taskId ?: "")
+                statement.setString(3, record.provider.name)
+                statement.setString(4, record.model)
+                statement.setLong(5, record.inputTokens)
+                statement.setLong(6, record.outputTokens)
+                if (record.latencyMs == null) statement.setNull(7, java.sql.Types.BIGINT) else statement.setLong(7, record.latencyMs)
+                if (record.totalCost == null) statement.setNull(8, java.sql.Types.NUMERIC) else statement.setBigDecimal(8, record.totalCost)
+                statement.setString(9, record.providerRequestId)
+                statement.setString(10, record.currency)
+                if (record.inputCost == null) statement.setNull(11, java.sql.Types.NUMERIC) else statement.setBigDecimal(11, record.inputCost)
+                if (record.outputCost == null) statement.setNull(12, java.sql.Types.NUMERIC) else statement.setBigDecimal(12, record.outputCost)
+                if (record.totalCost == null) statement.setNull(13, java.sql.Types.NUMERIC) else statement.setBigDecimal(13, record.totalCost)
+                statement.executeUpdate()
+            }
         }
     }
 }

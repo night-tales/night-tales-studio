@@ -13,13 +13,14 @@ class PostgresTaskSchemaTest {
             postgres.start()
             postgres.createConnection("").use { connection ->
                 val schema = Files.readString(
-                    java.nio.file.Paths.get("../db/V1__foundation.sql")
+                    java.nio.file.Paths.get("db/V1__foundation.sql")
                 )
                 connection.createStatement().use { statement ->
                     statement.execute(schema)
                 }
 
-                connection.prepareStatement(
+                connection.createStatement().use { statement ->
+                    statement.execute(
                     """
                     INSERT INTO users (id) VALUES ('integration-user');
                     INSERT INTO agents (id, name, provider, model)
@@ -33,8 +34,7 @@ class PostgresTaskSchemaTest {
                         3, 'worker-a', NOW() + INTERVAL '60 seconds'
                     )
                     """.trimIndent()
-                ).use { statement ->
-                    statement.execute()
+                    )
                 }
 
                 connection.createStatement().use { statement ->

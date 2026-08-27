@@ -139,3 +139,8 @@ CREATE INDEX IF NOT EXISTS idx_usage_user_created
 
 CREATE INDEX IF NOT EXISTS idx_artifacts_user_created
     ON artifacts(user_id, created_at DESC);
+
+
+CREATE INDEX IF NOT EXISTS idx_tasks_lease_expiry
+    ON tasks(lease_expires_at)
+    WHERE status = 'RUNNING';

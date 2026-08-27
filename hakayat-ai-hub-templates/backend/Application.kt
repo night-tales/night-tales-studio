@@ -140,6 +140,18 @@ fun Application.module() {
                 )
             }
 
+            delete("/api/v1/tasks/{taskId}") {
+                val principal = call.principal<FirebaseUserPrincipal>()
+                    ?: return@delete call.respond(io.ktor.http.HttpStatusCode.Unauthorized)
+                val taskId = call.parameters["taskId"]?.let { runCatching { java.util.UUID.fromString(it) }.getOrNull() }
+                    ?: return@delete call.respond(io.ktor.http.HttpStatusCode.BadRequest)
+                if (!taskRepository.cancelOwned(taskId, principal.uid)) {
+                    return@delete call.respond(io.ktor.http.HttpStatusCode.Conflict, mapOf("error" to "Task is not cancellable"))
+                }
+                taskRepository.addEvent(taskId, "cancelled")
+                call.respond(mapOf("status" to "cancelled", "taskId" to taskId.toString()))
+            }
+
             get("/api/v1/tasks/{taskId}") {
                 val principal = call.principal<FirebaseUserPrincipal>()
                     ?: return@get call.respond(io.ktor.http.HttpStatusCode.Unauthorized)

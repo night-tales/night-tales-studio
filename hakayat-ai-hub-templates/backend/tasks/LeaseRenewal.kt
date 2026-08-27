@@ -4,6 +4,7 @@ import com.hakayat.backend.db.TaskRepository
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 suspend fun <T> executeWithLease(

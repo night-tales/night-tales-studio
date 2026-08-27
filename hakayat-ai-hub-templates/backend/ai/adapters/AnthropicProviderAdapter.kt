@@ -15,7 +15,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.contentType
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonObject\nimport com.hakayat.backend.ai.AiStreamEvent\nimport com.hakayat.backend.ai.parseObject\nimport com.hakayat.backend.ai.parseSse\nimport kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.put
@@ -27,6 +27,48 @@ class AnthropicProviderAdapter(
     private val json: Json = Json { ignoreUnknownKeys = true }
 ) : AiProviderAdapter {
     override val provider = AiProvider.ANTHROPIC
+
+    override fun stream(request: AiRequest): Flow<AiStreamEvent> = kotlinx.coroutines.flow.flow {
+        if (apiKey.isBlank()) { emit(AiStreamEvent.Failed(IllegalArgumentException("Anthropic API key is not configured"))); return@flow }
+        if (request.prompt.isBlank()) { emit(AiStreamEvent.Failed(IllegalArgumentException("Prompt must not be blank"))); return@flow }
+        val body = buildJsonObject {
+            put("model", request.model)
+            put("max_tokens", request.maxTokens ?: 1024)
+            put("stream", true)
+            put("messages", kotlinx.serialization.json.buildJsonArray {
+                add(buildJsonObject { put("role", "user"); put("content", request.prompt) })
+            })
+            request.temperature?.let { put("temperature", it) }
+        }
+        val response = client.post(endpoint) {
+            contentType(ContentType.Application.Json)
+            header("x-api-key", apiKey)
+            header("anthropic-version", "2023-06-01")
+            setBody(body)
+        }
+        var requestId: String? = null
+        var text = StringBuilder()
+        var inputTokens = 0L
+        var outputTokens = 0L
+        parseSse(response.bodyAsChannel(), json) { event, data ->
+            val root = json.parseObject(data)
+            when (event ?: root["type"]?.jsonPrimitive?.content) {
+                "message_start" -> {
+                    requestId = root["message"]?.jsonObject?.get("id")?.jsonPrimitive?.content
+                    inputTokens = root["message"]?.jsonObject?.get("usage")?.jsonObject?.get("input_tokens")?.jsonPrimitive?.long ?: 0
+                    emit(AiStreamEvent.Started(requestId))
+                }
+                "content_block_delta" -> root["delta"]?.jsonObject?.get("text")?.jsonPrimitive?.content?.let {
+                    text.append(it); emit(AiStreamEvent.TextDelta(it))
+                }
+                "message_delta" -> {
+                    outputTokens = root["usage"]?.jsonObject?.get("output_tokens")?.jsonPrimitive?.long ?: outputTokens
+                }
+                "message_stop" -> emit(AiStreamEvent.Completed(AiResponse(text.toString(), AiUsage(inputTokens, outputTokens), providerRequestId = requestId)))
+                "error" -> emit(AiStreamEvent.Failed(IllegalStateException(data)))
+            }
+        }.collect {}
+    }
 
     override suspend fun complete(request: AiRequest): Result<AiResponse> = runCatching {
         require(apiKey.isNotBlank()) { "Anthropic API key is not configured" }
@@ -52,12 +94,10 @@ class AnthropicProviderAdapter(
         }
 
         val root = json.parseToJsonElement(response.body<String>()).jsonObject
-        val text = root["content"]?.let { content ->
-            content.toString()
-                .removePrefix("[")
-                .removeSuffix("]")
-                .let { raw -> Regex(""text"\\s*:\\s*"((?:\\.|[^"\\])*)"").find(raw)?.groupValues?.getOrNull(1) }
-        } ?: ""
+        val text = root["content"]?.jsonArray
+            ?.mapNotNull { it.jsonObject["text"]?.jsonPrimitive?.content }
+            ?.joinToString("")
+            ?: ""
 
         AiResponse(
             text = text,

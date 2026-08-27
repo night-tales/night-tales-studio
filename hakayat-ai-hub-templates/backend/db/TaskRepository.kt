@@ -102,6 +102,59 @@ class TaskRepository(private val workerId: String = UUID.randomUUID().toString()
     fun markFailed(id: UUID, error: String) =
         updateStatus(id, TaskStatus.FAILED, 0f, error, null)
 
+    fun retry(id: UUID, error: String, ignoredDelaySeconds: Long = 0): Boolean = DatabaseFactory.transaction { connection ->
+        connection.prepareStatement(
+            "UPDATE tasks SET status = 'QUEUED', retry_count = retry_count + 1, next_attempt_at = NOW() + ((LEAST(retry_count, 5) + 1) * INTERVAL '1 second'), error = ?, lease_owner = NULL, lease_expires_at = NULL WHERE id = ? AND retry_count < max_retries"
+        ).use { statement ->
+            statement.setString(1, error)
+            statement.setObject(2, id)
+            statement.executeUpdate() == 1
+        }
+    }
+
+    fun findByIdempotencyKey(userId: String, key: String): TaskRecord? = DatabaseFactory.transaction { connection ->
+        connection.prepareStatement(
+            "SELECT id, user_id, status, progress, error, output FROM tasks WHERE user_id = ? AND idempotency_key = ?"
+        ).use { statement ->
+            statement.setString(1, userId)
+            statement.setString(2, key)
+            statement.executeQuery().use { rs ->
+                if (!rs.next()) return@transaction null
+                TaskRecord(
+                    id = rs.getObject("id", UUID::class.java),
+                    userId = rs.getString("user_id"),
+                    status = TaskStatus.valueOf(rs.getString("status")),
+                    progress = rs.getFloat("progress"),
+                    error = rs.getString("error"),
+                    output = rs.getString("output")
+                )
+            }
+        }
+    }
+
+    fun cancelOwned(id: UUID, userId: String): Boolean = DatabaseFactory.transaction { connection ->
+        connection.prepareStatement(
+            "UPDATE tasks SET status = 'CANCELLED', completed_at = NOW(), lease_owner = NULL, lease_expires_at = NULL WHERE id = ? AND user_id = ? AND status IN ('QUEUED', 'PAUSED')"
+        ).use { statement ->
+            statement.setObject(1, id)
+            statement.setString(2, userId)
+            statement.executeUpdate() == 1
+        }
+    }
+
+    fun addEvent(id: UUID, type: String, payload: String = "{}") {
+        DatabaseFactory.transaction { connection ->
+            connection.prepareStatement(
+                "INSERT INTO task_events (task_id, type, payload) VALUES (?, ?, ?::jsonb)"
+            ).use { statement ->
+                statement.setObject(1, id)
+                statement.setString(2, type)
+                statement.setString(3, payload)
+                statement.executeUpdate()
+            }
+        }
+    }
+
     fun findOwned(id: UUID, userId: String): TaskRecord? =
         DatabaseFactory.transaction { connection ->
             connection.prepareStatement(

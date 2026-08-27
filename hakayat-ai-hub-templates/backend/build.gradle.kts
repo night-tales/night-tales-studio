@@ -52,7 +52,7 @@ dependencies {
     
     // Testing
     testImplementation("io.ktor:ktor-server-tests-jvm:$ktorVersion")
-    testImplementation("org.jetbrains.kotlin:kotlin-test-junit:1.9.22")
+    testImplementation("org.jetbrains.kotlin:kotlin-test-junit:2.2.21")
     testImplementation("org.testcontainers:junit-jupiter:1.20.1")
     testImplementation("org.testcontainers:postgresql:1.20.1")
 }

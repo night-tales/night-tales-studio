@@ -108,6 +108,7 @@ export default function TaskScreen() {
   const saveMessageToFirestore = async (msgRole: 'user' | 'assistant' | 'tool', content: string, agentName?: string) => {
     try {
       await addDoc(collection(db, 'messages'), {
+        userId: auth.currentUser?.uid,
         role: msgRole,
         content: content,
         agentName: agentName || null,

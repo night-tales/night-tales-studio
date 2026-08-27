@@ -26,6 +26,18 @@ class TaskRepository {
                 statement.setString(1, userId)
                 statement.executeUpdate()
             }
+            connection.prepareStatement("INSERT INTO agents (id, name, provider, model) VALUES (?, ?, ?, ?) ON CONFLICT (id) DO NOTHING").use { statement ->
+                statement.setString(1, agentId)
+                statement.setString(2, agentId)
+                statement.setString(3, when {
+                    agentId.startsWith("gpt-") -> "openai"
+                    agentId.startsWith("gemini-") -> "gemini"
+                    agentId.startsWith("claude-") -> "anthropic"
+                    else -> "unknown"
+                })
+                statement.setString(4, agentId)
+                statement.executeUpdate()
+            }
             connection.prepareStatement(
                 """
                 INSERT INTO tasks (id, user_id, agent_id, status, input, progress)

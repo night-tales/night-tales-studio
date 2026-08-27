@@ -6,6 +6,11 @@ import com.hakayat.backend.auth.FirebaseUserPrincipal
 import com.hakayat.backend.db.DatabaseFactory
 import com.hakayat.backend.db.TaskRepository
 import com.hakayat.backend.realtime.WebSocketManager
+import com.hakayat.backend.tasks.TaskWorker
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import io.ktor.server.application.*
 import io.ktor.server.auth.*
 import io.ktor.server.auth.bearer.*
@@ -62,6 +67,12 @@ fun Application.module() {
         claudeAdapter.agentId to claudeAdapter
     )
     val orchestrator = Orchestrator(agentsMap)
+    val workerScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    TaskWorker(workerScope, taskRepository, orchestrator, webSocketManager).start()
+
+    environment.monitor.subscribe(ApplicationStopping) {
+        workerScope.coroutineContext.cancel()
+    }
 
     routing {
         get("/health") {
@@ -102,46 +113,14 @@ fun Application.module() {
                     agentId = request.agentId,
                     prompt = request.prompt
                 )
-                taskRepository.markRunning(task.id)
-                webSocketManager.sendProgressUpdate(
-                    principal.uid,
-                    task.id.toString(),
-                    0.1f,
-                    "جاري تحضير الوكيل..."
+
+                call.respond(
+                    io.ktor.http.HttpStatusCode.Accepted,
+                    mapOf(
+                        "status" to "queued",
+                        "taskId" to task.id.toString()
+                    )
                 )
-
-                try {
-                    val result = orchestrator.executeTask(request.prompt, request.agentId)
-                    taskRepository.markCompleted(task.id, result.toString())
-                    webSocketManager.sendProgressUpdate(
-                        principal.uid,
-                        task.id.toString(),
-                        1f,
-                        "اكتملت المهمة"
-                    )
-
-                    call.respond(mapOf(
-                        "status" to "completed",
-                        "taskId" to task.id.toString(),
-                        "result" to result
-                    ))
-                } catch (e: Exception) {
-                    taskRepository.markFailed(task.id, e.message ?: "Task execution failed")
-                    webSocketManager.sendProgressUpdate(
-                        principal.uid,
-                        task.id.toString(),
-                        0f,
-                        "فشلت المهمة"
-                    )
-                    call.respond(
-                        io.ktor.http.HttpStatusCode.InternalServerError,
-                        mapOf(
-                            "status" to "failed",
-                            "taskId" to task.id.toString(),
-                            "error" to "Task execution failed"
-                        )
-                    )
-                }
             }
 
             get("/api/v1/tasks/{taskId}") {

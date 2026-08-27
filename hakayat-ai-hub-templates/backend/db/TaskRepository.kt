@@ -18,13 +18,13 @@ class TaskRepository {
             connection.prepareStatement(
                 """
                 INSERT INTO tasks (id, user_id, agent_id, status, input, progress)
-                VALUES (?, ?, ?, 'QUEUED', CAST(? AS jsonb), 0)
+                VALUES (?, ?, ?, 'QUEUED', to_jsonb(?::text), 0)
                 """.trimIndent()
             ).use { statement ->
                 statement.setObject(1, id)
                 statement.setString(2, userId)
                 statement.setString(3, agentId)
-                statement.setString(4, """{"prompt":${jsonString(prompt)}}""")
+                statement.setString(4, prompt)
                 statement.executeUpdate()
             }
             TaskRecord(id, userId, TaskStatus.QUEUED, 0f)
@@ -75,7 +75,7 @@ class TaskRepository {
                 TaskStatus.RUNNING ->
                     "UPDATE tasks SET status = ?, progress = ?, started_at = NOW() WHERE id = ?"
                 TaskStatus.COMPLETED ->
-                    "UPDATE tasks SET status = ?, progress = ?, output = CAST(? AS jsonb), completed_at = NOW() WHERE id = ?"
+                    "UPDATE tasks SET status = ?, progress = ?, output = to_jsonb(?::text), completed_at = NOW() WHERE id = ?"
                 TaskStatus.FAILED ->
                     "UPDATE tasks SET status = ?, progress = ?, error = ?, completed_at = NOW() WHERE id = ?"
                 else ->
@@ -87,7 +87,7 @@ class TaskRepository {
                     TaskStatus.COMPLETED -> {
                         statement.setString(1, status.name)
                         statement.setFloat(2, progress)
-                        statement.setString(3, """{"text":${jsonString(output ?: "")}}""")
+                        statement.setString(3, output ?: "")
                         statement.setObject(4, id)
                     }
                     TaskStatus.FAILED -> {
@@ -106,13 +106,4 @@ class TaskRepository {
             }
         }
     }
-
-    private fun jsonString(value: String): String =
-        """ + value
-            .replace("\\", "\\\\")
-            .replace(""", "\"")
-            .replace("
-", "\n")
-            .replace("", "\r")
-            .replace("	", "\t") + """
 }

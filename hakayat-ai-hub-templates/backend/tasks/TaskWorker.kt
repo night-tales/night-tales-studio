@@ -47,9 +47,7 @@ class TaskWorker(
                 )
             } catch (error: Exception) {
                 val message = error.message ?: "Task execution failed"
-                val retryCount = 0
-                val retryDelay = 1L shl retryCount.coerceAtMost(5)
-                if (!repository.retry(task.id, message, retryDelay)) {
+                if (!repository.retry(task.id, message, 0)) {
                     repository.markFailed(task.id, message)
                 }
                 repository.addEvent(task.id, "failed", """{"progress":0}""")

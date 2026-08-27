@@ -12,9 +12,6 @@ application {
     mainClass.set("com.hakayat.backend.ApplicationKt")
 }
 
-repositories {
-    mavenCentral()
-}
 
 dependencies {
     val ktorVersion = "2.3.8"

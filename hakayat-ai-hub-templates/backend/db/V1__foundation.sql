@@ -1,5 +1,6 @@
 -- Night Tales Studio / PostgreSQL foundation
 -- V1: identity, conversations, tasks and artifacts.
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 -- Secrets are intentionally NOT stored in plaintext here.
 
 CREATE TABLE IF NOT EXISTS users (

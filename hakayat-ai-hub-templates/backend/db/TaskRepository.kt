@@ -22,6 +22,10 @@ class TaskRepository {
     fun create(userId: String, agentId: String, prompt: String): TaskRecord =
         DatabaseFactory.transaction { connection ->
             val id = UUID.randomUUID()
+            connection.prepareStatement("INSERT INTO users (id) VALUES (?) ON CONFLICT (id) DO NOTHING").use { statement ->
+                statement.setString(1, userId)
+                statement.executeUpdate()
+            }
             connection.prepareStatement(
                 """
                 INSERT INTO tasks (id, user_id, agent_id, status, input, progress)

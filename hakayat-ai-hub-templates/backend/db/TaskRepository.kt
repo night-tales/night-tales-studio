@@ -139,9 +139,9 @@ class TaskRepository(private val workerId: String = UUID.randomUUID().toString()
                 TaskStatus.RUNNING ->
                     "UPDATE tasks SET status = ?, progress = ?, started_at = NOW(), lease_owner = ?, lease_expires_at = NOW() + INTERVAL '60 seconds' WHERE id = ?"
                 TaskStatus.COMPLETED ->
-                    "UPDATE tasks SET status = ?, progress = ?, output = to_jsonb(?::text), completed_at = NOW() WHERE id = ?"
+                    "UPDATE tasks SET status = ?, progress = ?, output = to_jsonb(?::text), completed_at = NOW(), lease_owner = NULL, lease_expires_at = NULL WHERE id = ?"
                 TaskStatus.FAILED ->
-                    "UPDATE tasks SET status = ?, progress = ?, error = ?, completed_at = NOW() WHERE id = ?"
+                    "UPDATE tasks SET status = ?, progress = ?, error = ?, completed_at = NOW(), lease_owner = NULL, lease_expires_at = NULL WHERE id = ?"
                 else ->
                     "UPDATE tasks SET status = ?, progress = ? WHERE id = ?"
             }

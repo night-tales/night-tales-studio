@@ -65,13 +65,10 @@ class TaskWorker(
                     }
                 }
 
-                repository.markCompleted(task.id, response)
-                repository.addEvent(task.id, "completed", """{"progress":1,"inputTokens":${usage.inputTokens},"outputTokens":${usage.outputTokens}}""")
-
                 val provider = when {
-                    task.agentId.startsWith("gpt-") -> AiProvider.OPENAI
-                    task.agentId.startsWith("claude-") -> AiProvider.ANTHROPIC
-                    task.agentId.startsWith("gemini-") -> AiProvider.GEMINI
+                    task.agentId.startsWith("gpt-") || task.agentId.startsWith("openai:") -> AiProvider.OPENAI
+                    task.agentId.startsWith("claude-") || task.agentId.startsWith("anthropic:") -> AiProvider.ANTHROPIC
+                    task.agentId.startsWith("gemini-") || task.agentId.startsWith("gemini:") -> AiProvider.GEMINI
                     else -> throw IllegalArgumentException("Unsupported provider agent: ${task.agentId}")
                 }
 
@@ -92,7 +89,7 @@ class TaskWorker(
                 )
 
                 repository.markCompleted(task.id, response)
-                repository.addEvent(task.id, "completed", """{"progress":1,"inputTokens":\${usage.inputTokens},"outputTokens":\${usage.outputTokens}}""")
+                repository.addEvent(task.id, "completed", """{"progress":1,"inputTokens":${usage.inputTokens},"outputTokens":${usage.outputTokens}}""")
                 webSocketManager.sendProgressUpdate(task.userId, task.id.toString(), 1f, "اكتملت المهمة")
             } catch (error: Exception) {
                 val message = error.message ?: "Task execution failed"

@@ -108,11 +108,28 @@ fun Application.module() {
                     )
                 }
 
-                val task = taskRepository.create(
-                    userId = principal.uid,
-                    agentId = request.agentId,
-                    prompt = request.prompt
-                )
+                val idempotencyKey = request.idempotencyKey?.trim()?.takeIf { it.isNotEmpty() }
+                if (idempotencyKey != null && idempotencyKey.length > 128) {
+                    return@post call.respond(io.ktor.http.HttpStatusCode.BadRequest, mapOf("error" to "idempotencyKey too long"))
+                }
+                val existing = idempotencyKey?.let { taskRepository.findByIdempotencyKey(principal.uid, it) }
+                if (existing != null) {
+                    return@post call.respond(io.ktor.http.HttpStatusCode.Accepted, mapOf("status" to "existing", "taskId" to existing.id.toString()))
+                }
+                val task = try {
+                    taskRepository.create(
+                        userId = principal.uid,
+                        agentId = request.agentId,
+                        prompt = request.prompt,
+                        idempotencyKey = idempotencyKey
+                    )
+                } catch (e: Exception) {
+                    if (idempotencyKey != null) {
+                        val raced = taskRepository.findByIdempotencyKey(principal.uid, idempotencyKey)
+                        if (raced != null) return@post call.respond(io.ktor.http.HttpStatusCode.Accepted, mapOf("status" to "existing", "taskId" to raced.id.toString()))
+                    }
+                    throw e
+                }
 
                 call.respond(
                     io.ktor.http.HttpStatusCode.Accepted,
@@ -144,4 +161,4 @@ fun Application.module() {
 }
 
 @Serializable
-data class TaskRequest(val prompt: String, val agentId: String)
+data class TaskRequest(val prompt: String, val agentId: String, val idempotencyKey: String? = null)

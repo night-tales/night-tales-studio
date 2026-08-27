@@ -43,6 +43,7 @@ class OpenAiProviderAdapter(
             request.maxTokens?.let { put("max_output_tokens", it) }
         }
         val response = client.post(endpoint) {
+            expectSuccess = true
             contentType(ContentType.Application.Json)
             header("Authorization", "Bearer $apiKey")
             setBody(body)

@@ -1,6 +1,5 @@
 plugins {
     kotlin("jvm") version "2.0.21"
-    id("io.ktor.plugin") version "2.3.8"
     kotlin("plugin.serialization") version "2.0.21"
     id("com.github.johnrengelman.shadow") version "8.1.1"
 }

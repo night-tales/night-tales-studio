@@ -1,5 +1,7 @@
 package com.hakayat.backend.ai
 
+import com.hakayat.backend.db.DatabaseFactory
+
 import java.sql.Connection
 import java.sql.PreparedStatement
 
@@ -7,7 +9,7 @@ interface UsageLedgerRepository {
     fun record(record: UsageRecord)
 }
 
-class JdbcUsageLedgerRepository(private val connection: Connection) : UsageLedgerRepository {
+class JdbcUsageLedgerRepository : UsageLedgerRepository {
     override fun record(record: UsageRecord) {
         val sql = """
             INSERT INTO usage_records (

@@ -19,7 +19,7 @@ data class TaskRecord(
 )
 
 class TaskRepository {
-    fun create(userId: String, agentId: String, prompt: String): TaskRecord =
+    fun create(userId: String, agentId: String, prompt: String, idempotencyKey: String? = null): TaskRecord =
         DatabaseFactory.transaction { connection ->
             val id = UUID.randomUUID()
             connection.prepareStatement("INSERT INTO users (id) VALUES (?) ON CONFLICT (id) DO NOTHING").use { statement ->
@@ -40,14 +40,15 @@ class TaskRepository {
             }
             connection.prepareStatement(
                 """
-                INSERT INTO tasks (id, user_id, agent_id, status, input, progress)
-                VALUES (?, ?, ?, 'QUEUED', jsonb_build_object('prompt', ?::text), 0)
+                INSERT INTO tasks (id, user_id, agent_id, status, input, progress, idempotency_key)
+                VALUES (?, ?, ?, 'QUEUED', jsonb_build_object('prompt', ?::text), 0, ?)
                 """.trimIndent()
             ).use { statement ->
                 statement.setObject(1, id)
                 statement.setString(2, userId)
                 statement.setString(3, agentId)
                 statement.setString(4, prompt)
+                statement.setString(5, idempotencyKey)
                 statement.executeUpdate()
             }
             TaskRecord(id, userId, TaskStatus.QUEUED, 0f)
@@ -60,7 +61,7 @@ class TaskRepository {
             """
             SELECT id, user_id, agent_id, input->>'prompt' AS prompt
             FROM tasks
-            WHERE status = 'QUEUED'
+            WHERE status = 'QUEUED' AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())
             ORDER BY created_at ASC
             FOR UPDATE SKIP LOCKED
             LIMIT 1

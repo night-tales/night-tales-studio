@@ -2,7 +2,8 @@ package com.hakayat.backend.ai.adapters
 
 import com.hakayat.backend.ai.AiStreamEvent
 import io.ktor.client.HttpClient
-import io.ktor.client.call.bodyAsText
+import io.ktor.client.request.get
+import io.ktor.client.statement.bodyAsText
 
 internal suspend fun HttpClient.sseEvents(url: String, parse: (String, String) -> AiStreamEvent?): List<AiStreamEvent> {
     val body = get(url).bodyAsText()

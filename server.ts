@@ -8,17 +8,66 @@ import OpenAI from "openai";
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT || 3000);
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || "http://localhost:3000").split(",").map(origin => origin.trim()).filter(Boolean);
 
-app.use(cors());
-app.use(express.json());
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error("Origin not allowed"));
+  },
+}));
+app.use(express.json({ limit: "1mb" }));
+
+const rateWindowMs = 60_000;
+const maxRequestsPerWindow = 30;
+const rateBuckets = new Map<string, { count: number; resetAt: number }>();
+
+app.get("/api/providers", (_req, res) => {
+  const providers = [
+    ["openai", process.env.OPENAI_API_KEY],
+    ["anthropic", process.env.ANTHROPIC_API_KEY],
+    ["gemini", process.env.GEMINI_API_KEY],
+    ["deepseek", process.env.DEEPSEEK_API_KEY],
+    ["aimlapi", process.env.AIML_API_KEY],
+  ]
+    .filter(([, key]) => Boolean(key))
+    .map(([provider]) => provider);
+
+  res.json({ providers });
+});
+
+app.use("/api/", (req, res, next) => {
+  const now = Date.now();
+  const key = req.ip || "unknown";
+  const bucket = rateBuckets.get(key);
+
+  if (!bucket || now >= bucket.resetAt) {
+    rateBuckets.set(key, { count: 1, resetAt: now + rateWindowMs });
+    return next();
+  }
+
+  if (bucket.count >= maxRequestsPerWindow) {
+    return res.status(429).json({ error: "Too many requests. Please try again later." });
+  }
+
+  bucket.count += 1;
+  return next();
+});
 
 app.post("/api/chat", async (req, res) => {
   try {
-    const { messages, model = "gpt-4o", provider = "openai", apiKey: clientApiKey } = req.body;
+    const { messages, model = "gpt-4o", provider = "openai" } = req.body;
+
+    if (!Array.isArray(messages) || messages.length === 0 || messages.length > 100) {
+      return res.status(400).json({ error: "messages must be a non-empty array with at most 100 items" });
+    }
+    if (typeof provider !== "string" || typeof model !== "string") {
+      return res.status(400).json({ error: "Invalid provider or model" });
+    }
     
     if (provider === "anthropic") {
-      const apiKey = clientApiKey || process.env.ANTHROPIC_API_KEY;
+      const apiKey = process.env.ANTHROPIC_API_KEY;
       if (!apiKey) return res.status(500).json({ error: "ANTHROPIC_API_KEY is missing." });
       
       // Map 'assistant' role to 'assistant' and 'user' to 'user'
@@ -44,7 +93,7 @@ app.post("/api/chat", async (req, res) => {
       return res.json({ choices: [{ message: { content: data.content[0].text } }] });
       
     } else if (provider === "gemini") {
-      const apiKey = clientApiKey || process.env.GEMINI_API_KEY;
+      const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey) return res.status(500).json({ error: "GEMINI_API_KEY is missing." });
       
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
@@ -64,14 +113,14 @@ app.post("/api/chat", async (req, res) => {
     } else {
       // OpenAI-compatible providers: openai, deepseek, aimlapi
       let baseURL: string | undefined = undefined;
-      let apiKey = clientApiKey || process.env.OPENAI_API_KEY;
+      let apiKey = process.env.OPENAI_API_KEY;
 
       if (provider === "deepseek") {
         baseURL = "https://api.deepseek.com";
-        apiKey = clientApiKey || process.env.DEEPSEEK_API_KEY;
+        apiKey = process.env.DEEPSEEK_API_KEY;
       } else if (provider === "aimlapi") {
         baseURL = "https://api.aimlapi.com/v1";
-        apiKey = clientApiKey || process.env.AIML_API_KEY;
+        apiKey = process.env.AIML_API_KEY;
       }
 
       if (!apiKey) {
@@ -91,15 +140,21 @@ app.post("/api/chat", async (req, res) => {
       res.json(completion);
     }
   } catch (error: any) {
-    console.error("Chat API Error:", error);
-    res.status(500).json({ error: error.message || "Something went wrong" });
+    console.error("Chat API Error:", error instanceof Error ? error.message : "Unknown error");
+    res.status(500).json({ error: "AI request failed" });
   }
 });
 
 app.post("/api/test-key", async (req, res) => {
   try {
-    const { provider, apiKey } = req.body;
-    if (!apiKey) return res.status(400).json({ error: "Missing API Key" });
+    const { provider } = req.body;
+    const apiKey = provider === "openai" ? process.env.OPENAI_API_KEY
+      : provider === "anthropic" ? process.env.ANTHROPIC_API_KEY
+      : provider === "gemini" ? process.env.GEMINI_API_KEY
+      : provider === "deepseek" ? process.env.DEEPSEEK_API_KEY
+      : provider === "aimlapi" ? process.env.AIML_API_KEY
+      : undefined;
+    if (!apiKey) return res.status(503).json({ error: "Provider is not configured on the server" });
 
     if (provider === "openai") {
       const response = await fetch('https://api.openai.com/v1/models', {
@@ -137,8 +192,8 @@ app.post("/api/test-key", async (req, res) => {
     
     res.json({ success: true });
   } catch (error: any) {
-    console.error("Test API Error:", error);
-    res.status(401).json({ error: error.message || "Invalid Key" });
+    console.error("Test API Error:", error instanceof Error ? error.message : "Unknown error");
+    res.status(401).json({ error: "Provider key validation failed" });
   }
 });
 

@@ -1,22 +1,36 @@
 package com.hakayat.backend
 
-import io.ktor.server.application.*
-import io.ktor.server.engine.*
-import io.ktor.server.netty.*
-import io.ktor.server.routing.*
-import io.ktor.server.response.*
-import io.ktor.server.request.*
-import io.ktor.server.auth.*
-import io.ktor.server.auth.jwt.*
-import io.ktor.serialization.kotlinx.json.*
-import io.ktor.server.plugins.contentnegotiation.*
+import com.hakayat.backend.ai.*
+import com.hakayat.backend.ai.adapters.AnthropicProviderAdapter
+import com.hakayat.backend.ai.adapters.GeminiProviderAdapter
+import com.hakayat.backend.ai.adapters.OpenAiProviderAdapter
+import com.hakayat.backend.auth.FirebaseAuthConfig
+import com.hakayat.backend.auth.FirebaseUserPrincipal
+import com.hakayat.backend.db.DatabaseFactory
+import com.hakayat.backend.db.TaskRepository
+import com.hakayat.backend.realtime.WebSocketManager
+import com.hakayat.backend.realtime.RealtimeTicketRepository
 import io.ktor.server.websocket.*
 import io.ktor.websocket.*
-import kotlinx.coroutines.channels.consumeEach
-import com.hakayat.backend.ai.adapters.*
-import com.hakayat.backend.realtime.WebSocketManager
-import com.hakayat.backend.auth.JwtConfig
 import kotlin.time.Duration.Companion.seconds
+import com.hakayat.backend.tasks.TaskWorker
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import io.ktor.server.application.*
+import io.ktor.server.auth.*
+import io.ktor.server.auth.bearer.*
+import io.ktor.server.engine.*
+import io.ktor.server.netty.*
+import io.ktor.server.request.*
+import io.ktor.server.response.*
+import io.ktor.server.routing.*
+import io.ktor.serialization.kotlinx.json.*
+import io.ktor.server.plugins.contentnegotiation.*
+import kotlinx.serialization.Serializable
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.cio.CIO
 
 fun main() {
     embeddedServer(Netty, port = 8080, host = "0.0.0.0", module = Application::module).start(wait = true)
@@ -26,93 +40,173 @@ fun Application.module() {
     install(ContentNegotiation) {
         json()
     }
-    
+    install(WebSockets) {
+        pingPeriod = 15.seconds
+        timeout = 30.seconds
+        maxFrameSize = 64 * 1024
+    }
+
+    FirebaseAuthConfig.initialize()
+    DatabaseFactory.initialize()
+
     install(Authentication) {
-        jwt("auth-jwt") {
-            verifier(JwtConfig.verifier)
-            validate { credential ->
-                if (credential.payload.getClaim("userId").asString() != "") {
-                    JWTPrincipal(credential.payload)
-                } else {
+        bearer("firebase") {
+            authenticate { credentials ->
+                try {
+                    FirebaseAuthConfig.verifyIdToken(credentials.token)
+                } catch (e: Exception) {
+                    application.log.warn("Firebase authentication failed: ${e.javaClass.simpleName}")
                     null
                 }
             }
         }
     }
-    
-    install(WebSockets) {
-        pingPeriod = 15.seconds
-        timeout = 15.seconds
-        maxFrameSize = Long.MAX_VALUE
-        masking = false
-    }
-    
+
     val webSocketManager = WebSocketManager()
-    
-    // تهيئة الوكلاء
-    val openAiAdapter = OpenAiAdapter(System.getenv("OPENAI_API_KEY") ?: "dummy-key")
-    val geminiAdapter = GeminiAdapter(System.getenv("GEMINI_API_KEY") ?: "dummy-key")
-    val claudeAdapter = ClaudeAdapter(System.getenv("ANTHROPIC_API_KEY") ?: "dummy-key")
-    
-    val agentsMap = mapOf(
-        openAiAdapter.agentId to openAiAdapter,
-        geminiAdapter.agentId to geminiAdapter,
-        claudeAdapter.agentId to claudeAdapter
+    val realtimeTickets = RealtimeTicketRepository()
+    val taskRepository = TaskRepository()
+
+    val aiHttpClient = HttpClient(CIO)
+    val providerAdapters = listOf(
+        OpenAiProviderAdapter(System.getenv("OPENAI_API_KEY").orEmpty(), aiHttpClient),
+        AnthropicProviderAdapter(System.getenv("ANTHROPIC_API_KEY").orEmpty(), aiHttpClient),
+        GeminiProviderAdapter(System.getenv("GEMINI_API_KEY").orEmpty(), aiHttpClient)
     )
-    
-    val orchestrator = Orchestrator(agentsMap)
-    
+    val aiRegistry = AiAgentRegistry(providerAdapters)
+    val aiExecutor = TaskAiExecutor(aiRegistry)
+    val usageLedger = JdbcUsageLedgerRepository()
+    val workerScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    TaskWorker(workerScope, taskRepository, aiExecutor, usageLedger, webSocketManager).start()
+
+    environment.monitor.subscribe(ApplicationStopping) {
+        workerScope.coroutineContext.cancel()
+        aiHttpClient.close()
+    }
+
     routing {
         get("/health") {
             call.respond(mapOf("status" to "ok"))
         }
-        
-        post("/api/v1/auth/mock-login") {
-            // محاكاة تسجيل الدخول لتوليد JWT (للأغراض التطويرية)
-            val userId = "user-${java.util.UUID.randomUUID()}"
-            val token = JwtConfig.generateToken(userId)
-            call.respond(mapOf("token" to token, "userId" to userId))
-        }
-        
-        authenticate("auth-jwt") {
-            post("/api/v1/tasks") {
-                val principal = call.principal<JWTPrincipal>()
-                val userId = principal!!.payload.getClaim("userId").asString()
-                
-                val request = call.receive<TaskRequest>()
-                
-                // في التطبيق الفعلي، سيتم حفظ المهمة في قاعدة البيانات هنا قبل تنفيذها
-                
-                // تنبيه المستخدم عبر WebSockets بأن المهمة بدأت
-                webSocketManager.sendProgressUpdate(userId, "taskId_123", 0.1f, "جاري تحضير الوكيل...")
-                
-                val result = orchestrator.executeTask(request.prompt, request.agentId)
-                
-                // تنبيه المستخدم بانتهاء المهمة
-                webSocketManager.sendProgressUpdate(userId, "taskId_123", 1.0f, "اكتملت المهمة")
-                
-                call.respond(mapOf("status" to "success", "result" to result))
+
+        webSocket("/api/v1/realtime") {
+            val ticket = call.request.queryParameters["ticket"]
+            val userId = ticket?.let { realtimeTickets.consume(it) }
+            if (userId == null) {
+                close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "Invalid realtime ticket"))
+                return@webSocket
             }
-        }
-        
-        webSocket("/api/v1/ws") {
-            // ملاحظة: من الأفضل تمرير الـ Token في معلمات الـ WebSocket للتحقق منه، هنا للتبسيط نقرأه كمعلمة.
-            val userId = call.request.queryParameters["userId"] ?: "anonymous"
-            
             webSocketManager.addSession(userId, this)
             try {
-                send("تم الاتصال بنجاح بـ AI Hub.")
-                incoming.consumeEach { frame ->
-                    if (frame is Frame.Text) {
-                        println("Received WS message from $userId: ${frame.readText()}")
-                    }
+                for (frame in incoming) {
+                    if (frame is Frame.Close) break
                 }
             } finally {
                 webSocketManager.removeSession(userId, this)
             }
         }
+
+        authenticate("firebase") {
+            get("/api/v1/auth/me") {
+                val principal = call.principal<FirebaseUserPrincipal>()
+                    ?: return@get call.respond(io.ktor.http.HttpStatusCode.Unauthorized)
+
+                call.respond(mapOf(
+                    "uid" to principal.uid,
+                    "claims" to principal.claims
+                ))
+            }
+
+            post("/api/v1/realtime/ticket") {
+                val principal = call.principal<FirebaseUserPrincipal>()
+                    ?: return@post call.respond(io.ktor.http.HttpStatusCode.Unauthorized)
+                call.respond(mapOf("ticket" to realtimeTickets.issue(principal.uid), "expiresInSeconds" to 60))
+            }
+
+            post("/api/v1/tasks") {
+                val principal = call.principal<FirebaseUserPrincipal>()
+                    ?: return@post call.respond(io.ktor.http.HttpStatusCode.Unauthorized)
+
+                val request = call.receive<TaskRequest>()
+                if (request.prompt.isBlank() || request.prompt.length > 20_000) {
+                    return@post call.respond(
+                        io.ktor.http.HttpStatusCode.BadRequest,
+                        mapOf("error" to "prompt must contain 1-20000 characters")
+                    )
+                }
+                if (request.agentId.isBlank()) {
+                    return@post call.respond(
+                        io.ktor.http.HttpStatusCode.BadRequest,
+                        mapOf("error" to "agentId is required")
+                    )
+                }
+
+                if (aiRegistry.get(request.agentId) == null) {
+                    return@post call.respond(io.ktor.http.HttpStatusCode.BadRequest, mapOf("error" to "Unsupported or unconfigured agentId"))
+                }
+
+                val idempotencyKey = request.idempotencyKey?.trim()?.takeIf { it.isNotEmpty() }
+                if (idempotencyKey != null && idempotencyKey.length > 128) {
+                    return@post call.respond(io.ktor.http.HttpStatusCode.BadRequest, mapOf("error" to "idempotencyKey too long"))
+                }
+                val existing = idempotencyKey?.let { taskRepository.findByIdempotencyKey(principal.uid, it) }
+                if (existing != null) {
+                    return@post call.respond(io.ktor.http.HttpStatusCode.Accepted, mapOf("status" to "existing", "taskId" to existing.id.toString()))
+                }
+                val task = try {
+                    taskRepository.create(
+                        userId = principal.uid,
+                        agentId = request.agentId,
+                        prompt = request.prompt,
+                        idempotencyKey = idempotencyKey
+                    )
+                } catch (e: Exception) {
+                    if (idempotencyKey != null) {
+                        val raced = taskRepository.findByIdempotencyKey(principal.uid, idempotencyKey)
+                        if (raced != null) return@post call.respond(io.ktor.http.HttpStatusCode.Accepted, mapOf("status" to "existing", "taskId" to raced.id.toString()))
+                    }
+                    throw e
+                }
+
+                call.respond(
+                    io.ktor.http.HttpStatusCode.Accepted,
+                    mapOf(
+                        "status" to "queued",
+                        "taskId" to task.id.toString()
+                    )
+                )
+            }
+
+            delete("/api/v1/tasks/{taskId}") {
+                val principal = call.principal<FirebaseUserPrincipal>()
+                    ?: return@delete call.respond(io.ktor.http.HttpStatusCode.Unauthorized)
+                val taskId = call.parameters["taskId"]?.let { runCatching { java.util.UUID.fromString(it) }.getOrNull() }
+                    ?: return@delete call.respond(io.ktor.http.HttpStatusCode.BadRequest)
+                if (!taskRepository.cancelOwned(taskId, principal.uid)) {
+                    return@delete call.respond(io.ktor.http.HttpStatusCode.Conflict, mapOf("error" to "Task is not cancellable"))
+                }
+                taskRepository.addEvent(taskId, "cancelled")
+                call.respond(mapOf("status" to "cancelled", "taskId" to taskId.toString()))
+            }
+
+            get("/api/v1/tasks/{taskId}") {
+                val principal = call.principal<FirebaseUserPrincipal>()
+                    ?: return@get call.respond(io.ktor.http.HttpStatusCode.Unauthorized)
+
+                val taskId = call.parameters["taskId"]?.let {
+                    runCatching { java.util.UUID.fromString(it) }.getOrNull()
+                } ?: return@get call.respond(
+                    io.ktor.http.HttpStatusCode.BadRequest,
+                    mapOf("error" to "Invalid taskId")
+                )
+
+                val task = taskRepository.findOwned(taskId, principal.uid)
+                    ?: return@get call.respond(io.ktor.http.HttpStatusCode.NotFound)
+
+                call.respond(task)
+            }
+        }
     }
 }
 
-@kotlinx.serialization.Serializable
-data class TaskRequest(val prompt: String, val agentId: String)
+@Serializable
+data class TaskRequest(val prompt: String, val agentId: String, val idempotencyKey: String? = null)

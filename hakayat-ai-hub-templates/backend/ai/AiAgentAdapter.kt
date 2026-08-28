@@ -1,13 +1,15 @@
 package com.hakayat.backend.ai
 
+/**
+ * Compatibility contract for task-level agents.
+ * Provider implementations should implement [AiProviderAdapter].
+ */
 interface AiAgentAdapter {
-    /**
-     * مُعرف الوكيل (مثلاً: "openai-gpt4o", "gemini-1.5-pro", "claude-3.5-sonnet")
-     */
     val agentId: String
+    val providerAdapter: AiProviderAdapter
 
-    /**
-     * تنفيذ المهمة بناءً على الطلب (Prompt) وإرجاع النتيجة
-     */
-    suspend fun executeTask(prompt: String): Result<String>
+    suspend fun executeTask(prompt: String): Result<String> {
+        val result = providerAdapter.complete(AiRequest(model = agentId, prompt = prompt))
+        return result.map { it.text }
+    }
 }

@@ -1,13 +1,30 @@
 import { Routes, Route, Link, useLocation } from 'react-router-dom';
-import { Home, MessageSquare, Clock, Settings, Bot, Map as MapIcon } from 'lucide-react';
+import { Home, MessageSquare, Clock, Settings, Bot, Map as MapIcon, LogOut } from 'lucide-react';
 import HomeScreen from './components/HomeScreen';
 import TaskScreen from './components/TaskScreen';
 import MapScreen from './components/MapScreen';
 import HistoryScreen from './components/HistoryScreen';
 import SettingsScreen from './components/SettingsScreen';
+import AuthScreen from './components/AuthScreen';
+import { onAuthStateChanged, signOut, User } from 'firebase/auth';
+import { auth } from './lib/firebase';
+import { useEffect, useState } from 'react';
 
 function App() {
   const location = useLocation();
+  const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  useEffect(() => onAuthStateChanged(auth, currentUser => {
+    setUser(currentUser);
+    setAuthLoading(false);
+  }), []);
+
+  if (authLoading) {
+    return <div className="min-h-screen bg-zinc-950 text-zinc-400 flex items-center justify-center">جاري التحقق من الهوية...</div>;
+  }
+
+  if (!user) return <AuthScreen />;
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-50 font-sans flex justify-center">
@@ -20,8 +37,9 @@ function App() {
             <div className="bg-blue-500 text-white p-1.5 rounded-lg">
               <Bot size={20} />
             </div>
-            <h1 className="text-lg font-bold tracking-tight leading-none text-white">حكايات AI Hub</h1>
+            <h1 className="text-lg font-bold tracking-tight leading-none text-white">Night Tales Studio</h1>
           </Link>
+          <button onClick={() => signOut(auth)} className="text-zinc-500 hover:text-zinc-200" aria-label="تسجيل الخروج"><LogOut size={18} /></button>
         </header>
 
         {/* Main Content Area */}

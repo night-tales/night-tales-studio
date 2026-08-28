@@ -23,6 +23,14 @@ class WebSocketManager {
         }
     }
 
+    suspend fun sendTaskText(userId: String, taskId: String, delta: String) {
+        val escaped = delta.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")
+        val payload = """{"type":"text_delta","taskId":"$taskId","text":"$escaped"}"""
+        connections[userId]?.forEach { session ->
+            try { session.send(Frame.Text(payload)) } catch (_: Exception) { }
+        }
+    }
+
     // إرسال تحديث تقدم إلى مستخدم معين
     suspend fun sendProgressUpdate(userId: String, taskId: String, progress: Float, message: String) {
         val jsonPayload = """{"type":"progress", "taskId":"$taskId", "progress":$progress, "message":"$message"}"""

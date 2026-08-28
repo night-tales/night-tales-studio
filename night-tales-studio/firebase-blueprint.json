@@ -1,0 +1,33 @@
+{
+  "entities": {
+    "Message": {
+      "title": "Message",
+      "description": "A message in the task screen",
+      "type": "object",
+      "properties": {
+        "role": {
+          "type": "string",
+          "enum": ["user", "assistant", "tool"]
+        },
+        "content": {
+          "type": "string"
+        },
+        "agentName": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "timestamp"
+        }
+      },
+      "required": ["role", "content", "createdAt"]
+    }
+  },
+  "firestore": {
+    "messages": {
+      "schema": {
+        "$ref": "#/entities/Message"
+      },
+      "description": "Messages sent by users and assistants"
+    }
+  }
+}

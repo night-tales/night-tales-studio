@@ -4,7 +4,7 @@ interface AiAgentAdapter {
     val provider: AiProvider
     val agentId: String get() = provider.name.lowercase()
 
-    suspend fun execute(request: AiRequest): AiResponse =\n        executeTask(request.prompt).map { AiResponse(text = it) }.getOrThrow()
+    suspend fun execute(request: AiRequest): AiResponse
 
     suspend fun complete(request: AiRequest): Result<AiResponse> = runCatching {
         require(request.prompt.isNotBlank()) { "Prompt must not be blank" }
@@ -16,8 +16,16 @@ interface AiAgentAdapter {
 
     fun stream(request: AiRequest): kotlinx.coroutines.flow.Flow<AiStreamEvent> =
         kotlinx.coroutines.flow.flow {
-            complete(request).onSuccess {
-                emit(AiStreamEvent.Completed(StreamResponse(text = it.text, id = it.providerRequestId, usage = it.usage)))
+            complete(request).onSuccess { response ->
+                emit(
+                    AiStreamEvent.Completed(
+                        StreamResponse(
+                            text = response.text,
+                            id = response.providerRequestId,
+                            usage = response.usage
+                        )
+                    )
+                )
             }.onFailure { throw it }
         }
 }

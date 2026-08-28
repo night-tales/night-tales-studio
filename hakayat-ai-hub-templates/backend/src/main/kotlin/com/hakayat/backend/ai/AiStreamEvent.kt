@@ -6,10 +6,5 @@ sealed interface AiStreamEvent {
     data class Completed(val response: StreamResponse) : AiStreamEvent
 }
 
-data class StreamResponse(
-    val id: String? = null,
-    val status: String? = null,
-    val usage: TokenUsage = TokenUsage(),
-)
-
+data class StreamResponse(val id: String? = null, val status: String? = null, val usage: TokenUsage = TokenUsage())
 data class TokenUsage(val inputTokens: Long = 0, val outputTokens: Long = 0)

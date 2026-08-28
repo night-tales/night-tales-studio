@@ -4,7 +4,7 @@ interface AiAgentAdapter {
     val provider: AiProvider
     val agentId: String get() = provider.name.lowercase()
 
-    suspend fun execute(request: AiRequest): AiResponse
+    suspend fun execute(request: AiRequest): AiResponse =\n        executeTask(request.prompt).map { AiResponse(text = it) }.getOrThrow()
 
     suspend fun complete(request: AiRequest): Result<AiResponse> = runCatching {
         require(request.prompt.isNotBlank()) { "Prompt must not be blank" }

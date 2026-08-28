@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Plus, Trash2, CheckCircle2, Circle, ListTodo } from 'lucide-react';
+import { Plus, Trash2, CheckCircle2, Circle, ListTodo, Users, Tag, X } from 'lucide-react';
 import { db, auth } from '../lib/firebase';
-import { collection, query, orderBy, onSnapshot, addDoc, deleteDoc, doc, updateDoc, serverTimestamp, where } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, addDoc, deleteDoc, doc, updateDoc, serverTimestamp, where, or } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../lib/firebaseUtils';
 
 interface Task {
@@ -10,6 +10,8 @@ interface Task {
   completed: boolean;
   createdAt: any;
   userId: string;
+  tags?: string[];
+  sharedWithEmails?: string[];
 }
 
 export default function TaskScreen() {
@@ -17,7 +19,8 @@ export default function TaskScreen() {
   const [loading, setLoading] = useState(true);
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-
+  const [sharingTaskId, setSharingTaskId] = useState<string | null>(null);
+  const [shareEmail, setShareEmail] = useState('');
   const user = auth.currentUser;
 
   useEffect(() => {
@@ -25,10 +28,15 @@ export default function TaskScreen() {
       setLoading(false);
       return;
     }
-
+    
+    // We want tasks where userId == user.uid OR sharedWithEmails contains user.email
+    // Note: Firestore 'or' query needs to be structured carefully
     const q = query(
       collection(db, 'tasks'),
-      where('userId', '==', user.uid),
+      or(
+        where('userId', '==', user.uid),
+        where('sharedWithEmails', 'array-contains', user.email)
+      ),
       orderBy('createdAt', 'desc')
     );
     
@@ -57,12 +65,21 @@ export default function TaskScreen() {
     if (!newTaskTitle.trim() || !user || isSubmitting) return;
 
     setIsSubmitting(true);
+    
+    // Extract hashtags from title
+    const titleRegex = /(?:^|\s)(?:#)([a-zA-Z\d\u0600-\u06FF]+)/gm;
+    const matches = Array.from(newTaskTitle.matchAll(titleRegex));
+    const tags = matches.map(m => m[1]);
+    const cleanTitle = newTaskTitle.replace(titleRegex, '').trim();
+
     try {
       await addDoc(collection(db, 'tasks'), {
-        title: newTaskTitle.trim(),
+        title: cleanTitle || newTaskTitle.trim(),
         completed: false,
         createdAt: serverTimestamp(),
-        userId: user.uid
+        userId: user.uid,
+        tags: tags,
+        sharedWithEmails: []
       });
       setNewTaskTitle('');
     } catch (error) {
@@ -82,11 +99,36 @@ export default function TaskScreen() {
     }
   };
 
-  const deleteTask = async (id: string) => {
+  const deleteTask = async (task: Task) => {
+    if (task.userId !== user?.uid) return; // Only owner can delete
     try {
-      await deleteDoc(doc(db, 'tasks', id));
+      await deleteDoc(doc(db, 'tasks', task.id));
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, 'tasks');
+    }
+  };
+  
+  const handleShare = async (e: React.FormEvent, taskId: string, currentShared: string[]) => {
+    e.preventDefault();
+    if (!shareEmail.trim()) return;
+    try {
+      await updateDoc(doc(db, 'tasks', taskId), {
+        sharedWithEmails: [...(currentShared || []), shareEmail.trim().toLowerCase()]
+      });
+      setShareEmail('');
+      setSharingTaskId(null);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'tasks');
+    }
+  };
+
+  const removeShare = async (taskId: string, currentShared: string[], emailToRemove: string) => {
+    try {
+      await updateDoc(doc(db, 'tasks', taskId), {
+        sharedWithEmails: currentShared.filter(e => e !== emailToRemove)
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'tasks');
     }
   };
 
@@ -105,7 +147,7 @@ export default function TaskScreen() {
             type="text"
             value={newTaskTitle}
             onChange={(e) => setNewTaskTitle(e.target.value)}
-            placeholder="أضف مهمة جديدة..."
+            placeholder="أضف مهمة... (يمكنك استخدام # لإضافة تصنيف)"
             className="flex-1 bg-zinc-800 border border-zinc-700 text-zinc-100 text-sm rounded-lg px-3 py-2.5 outline-none focus:border-blue-500 transition-colors"
           />
           <button 
@@ -138,32 +180,104 @@ export default function TaskScreen() {
             </div>
           </div>
         ) : (
-          tasks.map(task => (
-            <div 
-              key={task.id} 
-              className={`bg-zinc-900 border ${task.completed ? 'border-zinc-800/50 opacity-60' : 'border-zinc-700'} rounded-xl p-4 flex items-center gap-3 transition-all`}
-            >
-              <button 
-                onClick={() => toggleTask(task)}
-                className={`shrink-0 ${task.completed ? 'text-green-500' : 'text-zinc-400 hover:text-blue-400'} transition-colors`}
-              >
-                {task.completed ? <CheckCircle2 size={24} /> : <Circle size={24} />}
-              </button>
-              
-              <div className="flex-1 min-w-0">
-                <p className={`text-sm ${task.completed ? 'text-zinc-500 line-through' : 'text-zinc-200'} whitespace-pre-wrap leading-relaxed`}>
-                  {task.title}
-                </p>
+          tasks.map(task => {
+            const isOwner = task.userId === user?.uid;
+            const isSharingOpen = sharingTaskId === task.id;
+            
+            return (
+              <div key={task.id} className="flex flex-col gap-2">
+                <div 
+                  className={`bg-zinc-900 border ${task.completed ? 'border-zinc-800/50 opacity-60' : 'border-zinc-700'} rounded-xl p-4 flex items-start gap-3 transition-all`}
+                >
+                  <button 
+                    onClick={() => toggleTask(task)}
+                    className={`shrink-0 mt-0.5 ${task.completed ? 'text-green-500' : 'text-zinc-400 hover:text-blue-400'} transition-colors`}
+                  >
+                    {task.completed ? <CheckCircle2 size={22} /> : <Circle size={22} />}
+                  </button>
+                  
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-sm ${task.completed ? 'text-zinc-500 line-through' : 'text-zinc-200'} whitespace-pre-wrap leading-relaxed`}>
+                      {task.title}
+                    </p>
+                    
+                    {/* Tags */}
+                    {task.tags && task.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mt-2">
+                        {task.tags.map(tag => (
+                          <span key={tag} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 text-xs font-medium border border-blue-500/20">
+                            <Tag size={10} />
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    
+                    {/* Shared Indicators */}
+                    {task.sharedWithEmails && task.sharedWithEmails.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {task.sharedWithEmails.map(email => (
+                          <span key={email} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 text-[10px] font-medium border border-zinc-700">
+                            <Users size={10} />
+                            {email}
+                            {isOwner && (
+                              <button onClick={() => removeShare(task.id, task.sharedWithEmails!, email)} className="hover:text-red-400 ml-1">
+                                <X size={10} />
+                              </button>
+                            )}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {!isOwner && (
+                      <div className="mt-2 inline-flex px-2 py-0.5 rounded bg-amber-500/10 text-amber-500/80 text-[10px] border border-amber-500/20">
+                        مشاركة
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="shrink-0 flex items-center gap-1">
+                    {isOwner && (
+                      <>
+                        <button 
+                          onClick={() => setSharingTaskId(isSharingOpen ? null : task.id)}
+                          className={`text-zinc-500 hover:text-blue-400 transition-colors p-2 rounded-lg hover:bg-zinc-800 ${isSharingOpen ? 'bg-zinc-800 text-blue-400' : ''}`}
+                        >
+                          <Users size={16} />
+                        </button>
+                        <button 
+                          onClick={() => deleteTask(task)}
+                          className="text-zinc-500 hover:text-red-400 transition-colors p-2 rounded-lg hover:bg-zinc-800"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+                
+                {/* Share Input Area */}
+                {isSharingOpen && (
+                  <form onSubmit={(e) => handleShare(e, task.id, task.sharedWithEmails || [])} className="flex gap-2 px-2 pb-2">
+                    <input
+                      type="email"
+                      value={shareEmail}
+                      onChange={(e) => setShareEmail(e.target.value)}
+                      placeholder="أدخل بريد الشخص للمشاركة..."
+                      className="flex-1 bg-zinc-900 border border-zinc-700 text-zinc-100 text-xs rounded-lg px-3 py-2 outline-none focus:border-blue-500"
+                    />
+                    <button 
+                      type="submit"
+                      disabled={!shareEmail.trim()}
+                      className="bg-blue-600 text-white px-3 py-2 text-xs rounded-lg disabled:opacity-50"
+                    >
+                      مشاركة
+                    </button>
+                  </form>
+                )}
               </div>
-
-              <button 
-                onClick={() => deleteTask(task.id)}
-                className="shrink-0 text-zinc-500 hover:text-red-400 transition-colors p-2 rounded-lg hover:bg-zinc-800"
-              >
-                <Trash2 size={18} />
-              </button>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
     </div>

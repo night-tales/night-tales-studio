@@ -2,7 +2,7 @@
   "entities": {
     "Message": {
       "title": "Message",
-      "description": "A message in the task screen",
+      "description": "A message in the chat screen",
       "type": "object",
       "properties": {
         "role": {
@@ -15,11 +15,14 @@
         "agentName": {
           "type": "string"
         },
+        "userId": {
+          "type": "string"
+        },
         "createdAt": {
           "type": "timestamp"
         }
       },
-      "required": ["role", "content", "createdAt"]
+      "required": ["role", "content", "userId", "createdAt"]
     }
   },
   "firestore": {

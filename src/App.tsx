@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
 import { Routes, Route, Link, useLocation } from 'react-router-dom';
-import { Home, MessageSquare, Clock, Settings, Bot, Map as MapIcon, Loader2, LogOut } from 'lucide-react';
+import { Home, MessageSquare, ListTodo, Clock, Settings, Bot, Loader2, LogOut } from 'lucide-react';
 import { onAuthStateChanged, signOut, User } from 'firebase/auth';
 import { auth } from './lib/firebase';
 import HomeScreen from './components/HomeScreen';
 import TaskScreen from './components/TaskScreen';
-import MapScreen from './components/MapScreen';
+import ChatScreen from './components/ChatScreen';
 import HistoryScreen from './components/HistoryScreen';
 import SettingsScreen from './components/SettingsScreen';
 import LoginScreen from './components/LoginScreen';
@@ -20,6 +20,7 @@ function App() {
       setUser(currentUser);
       setAuthLoading(false);
     });
+
     return () => unsubscribe();
   }, []);
 
@@ -66,7 +67,7 @@ function App() {
             <Routes>
               <Route path="/" element={<HomeScreen />} />
               <Route path="/task" element={<TaskScreen />} />
-              <Route path="/map" element={<MapScreen />} />
+              <Route path="/chat" element={<ChatScreen />} />
               <Route path="/history" element={<HistoryScreen />} />
               <Route path="/settings" element={<SettingsScreen />} />
             </Routes>
@@ -77,8 +78,8 @@ function App() {
         {user && (
           <nav className="absolute bottom-0 w-full bg-zinc-900 border-t border-zinc-800 px-6 py-3 flex justify-between items-center z-20 pb-safe">
             <NavItem to="/" icon={<Home size={24} />} label="الرئيسية" active={location.pathname === '/'} />
-            <NavItem to="/task" icon={<MessageSquare size={24} />} label="المهام" active={location.pathname === '/task'} />
-            <NavItem to="/map" icon={<MapIcon size={24} />} label="الخريطة" active={location.pathname === '/map'} />
+            <NavItem to="/task" icon={<ListTodo size={24} />} label="المهام" active={location.pathname === '/task'} />
+            <NavItem to="/chat" icon={<MessageSquare size={24} />} label="المحادثة" active={location.pathname === '/chat'} />
             <NavItem to="/history" icon={<Clock size={24} />} label="السجل" active={location.pathname === '/history'} />
             <NavItem to="/settings" icon={<Settings size={24} />} label="الإعدادات" active={location.pathname === '/settings'} />
           </nav>
